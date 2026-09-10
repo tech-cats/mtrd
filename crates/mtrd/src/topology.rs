@@ -1,11 +1,13 @@
 mod layout;
 mod options;
+pub(crate) mod preprocess;
 mod render;
 mod validation;
 
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
+use thiserror::Error;
 
-use crate::{LocalizedNames, manifest_format::canonicalize_yaml};
+use crate::{LocalizedNames, SchematicManifest, manifest_format::canonicalize_yaml};
 
 pub use options::{
     TopologyBackgroundOptions, TopologyCartesianAxes, TopologyCommonStationFill,
@@ -15,8 +17,37 @@ pub use options::{
     TopologyOptions, TopologyScale, TopologyStationColor, TopologyStationOptions,
     TopologyStrokeAlignment, TopologyValueError,
 };
+pub use preprocess::{
+    EdgeEndpoint, IncidentEdge, LocatedOccurrence, PreprocessedEdge, PreprocessedNode,
+    PreprocessedPath, PreprocessedTopology, ReducedTraversal, RetentionReason, SourceSegmentSpan,
+    StationNeighborOrder, TopologyPreprocessError, UnsupportedIntersectionKind,
+    VirtualContinuation, preprocess_topology,
+};
 pub use render::render_topology_svg;
-pub use validation::{TopologyRenderError, validate_topology};
+pub use validation::{
+    DuplicateStationPositionGroup, DuplicateStationPositionGroups, TopologyRenderError,
+    validate_topology,
+};
+
+#[derive(Debug, Error, PartialEq)]
+pub enum SchematicGenerationError {
+    #[error(transparent)]
+    Preprocess(#[from] TopologyPreprocessError),
+
+    #[error("schematic generation is not implemented yet")]
+    StageUnavailable,
+}
+
+/// Validate and preprocess a topology before the remaining generation stages.
+///
+/// The layout stages are deliberately not available yet, so a successfully
+/// preprocessed topology currently returns [`SchematicGenerationError::StageUnavailable`].
+pub fn generate_schematic(
+    topology: &MetroTopology,
+) -> Result<SchematicManifest, SchematicGenerationError> {
+    let _preprocessed = preprocess::preprocess_topology(topology.clone())?;
+    Err(SchematicGenerationError::StageUnavailable)
+}
 
 /// An entire metro topology manifest.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

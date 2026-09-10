@@ -156,6 +156,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "mtrd-devtools"
+version = "0.0.0"
+dependencies = [
+ "clap",
+ "mtrd",
+ "serde_json",
+ "serde_yaml",
+ "thiserror",
+]
+
+[[package]]
 name = "once_cell_polyfill"
 version = "1.70.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"

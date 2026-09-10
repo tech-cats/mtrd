@@ -123,6 +123,12 @@ mtrd render --topology map.yaml
 
 # Use -T to write ./mtrd-<microsecond timestamp>.svg.
 mtrd render -tT map.yaml
+
+# Preprocess a topology for schematic generation (currently stops before layout).
+mtrd generate topology.yaml
+# Short aliases are also available.
+mtrd g topology.yaml schematic.yaml
+mtrd gen -T topology.yaml
 ```
 
 `check` requires exactly one of `-t`/`--topology` or `-s`/`--schematic` and
@@ -131,6 +137,7 @@ successful check means the manifest can be processed by the topology renderer.
 It validates that:
 
 - station and line IDs are non-empty and unique;
+- distinct stations do not have identical positions;
 - every station referenced by a line path exists;
 - both coordinates of every station are finite and within the renderer's
   supported numeric range;
@@ -250,6 +257,13 @@ names:
   de: [München]
   en: [Munich]
 ```
+
+`generate`, with aliases `g` and `gen`, validates and preprocesses its topology
+input. The layout stages are not implemented yet, so it currently exits with
+`schematic generation is not implemented yet` and creates no output. Once the
+remaining stages are implemented, its default destination will be
+`<input stem>.schematic.yaml`; an explicit positional destination and `-T`/
+`--timestamp` naming are already accepted.
 
 ## Schematic manifest library API
 

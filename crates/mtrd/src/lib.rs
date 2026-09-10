@@ -23,13 +23,18 @@ pub use schematic::{
     render_schematic_svg, validate_schematic,
 };
 pub use topology::{
-    MetroTopology, TopologyBackgroundOptions, TopologyCartesianAxes, TopologyCommonStationFill,
-    TopologyCommonStationOptions, TopologyCommonStationStroke, TopologyCoordinateOptions,
-    TopologyGeographicAxes, TopologyInterchangeStationFill, TopologyInterchangeStationOptions,
-    TopologyInterchangeStationStroke, TopologyLabelOptions, TopologyLength, TopologyLine,
-    TopologyLineOptions, TopologyOptions, TopologyPath, TopologyPosition, TopologyRenderError,
-    TopologyScale, TopologyStation, TopologyStationColor, TopologyStationOptions,
-    TopologyStrokeAlignment, TopologyValueError, render_topology_svg, validate_topology,
+    DuplicateStationPositionGroup, DuplicateStationPositionGroups, EdgeEndpoint, IncidentEdge,
+    LocatedOccurrence, MetroTopology, PreprocessedEdge, PreprocessedNode, PreprocessedPath,
+    PreprocessedTopology, ReducedTraversal, RetentionReason, SchematicGenerationError,
+    SourceSegmentSpan, StationNeighborOrder, TopologyBackgroundOptions, TopologyCartesianAxes,
+    TopologyCommonStationFill, TopologyCommonStationOptions, TopologyCommonStationStroke,
+    TopologyCoordinateOptions, TopologyGeographicAxes, TopologyInterchangeStationFill,
+    TopologyInterchangeStationOptions, TopologyInterchangeStationStroke, TopologyLabelOptions,
+    TopologyLength, TopologyLine, TopologyLineOptions, TopologyOptions, TopologyPath,
+    TopologyPosition, TopologyPreprocessError, TopologyRenderError, TopologyScale, TopologyStation,
+    TopologyStationColor, TopologyStationOptions, TopologyStrokeAlignment, TopologyValueError,
+    UnsupportedIntersectionKind, VirtualContinuation, generate_schematic, preprocess_topology,
+    render_topology_svg, validate_topology,
 };
 
 /// Names indexed by a locale such as `en` or `zh-CN`.
