@@ -28,6 +28,7 @@ enum Command {
     },
 
     /// Convert a metro topology between YAML and JSON.
+    #[command(alias = "conv")]
     Convert {
         /// Source .yaml, .yml, or .json file.
         input: PathBuf,
@@ -65,6 +66,7 @@ enum Command {
     },
 
     /// Render a metro manifest as SVG.
+    #[command(alias = "r")]
     Render {
         /// Generate a topology graph.
         #[arg(
