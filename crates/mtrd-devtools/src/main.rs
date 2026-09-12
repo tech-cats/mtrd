@@ -24,8 +24,12 @@ enum Command {
         /// Source topology manifest in YAML or JSON.
         input: PathBuf,
 
-        /// Destination preprocessed manifest in YAML or JSON.
-        output: PathBuf,
+        /// Destination preprocessed manifest (defaults to <input stem>.preprocessed.<extension>).
+        output: Option<PathBuf>,
+
+        /// Also render the generated preprocessed manifest as SVG.
+        #[arg(short, long)]
+        render: bool,
     },
 
     /// Render a preprocessed topology manifest as SVG.
@@ -33,8 +37,8 @@ enum Command {
         /// Preprocessed topology manifest in YAML or JSON.
         input: PathBuf,
 
-        /// Destination SVG file.
-        output: PathBuf,
+        /// Destination SVG file (defaults to <input path>.svg).
+        output: Option<PathBuf>,
     },
 }
 
@@ -101,8 +105,10 @@ enum CliError {
 
 fn main() -> ExitCode {
     match run(Cli::parse()) {
-        Ok(output) => {
-            println!("{}", output.display());
+        Ok(outputs) => {
+            for output in outputs {
+                println!("{}", output.display());
+            }
             ExitCode::SUCCESS
         }
         Err(error) => {
@@ -112,16 +118,25 @@ fn main() -> ExitCode {
     }
 }
 
-fn run(cli: Cli) -> Result<PathBuf, CliError> {
+fn run(cli: Cli) -> Result<Vec<PathBuf>, CliError> {
     match cli.command {
-        Command::Preprocess { input, output } => preprocess(&input, &output),
-        Command::Render { input, output } => render(&input, &output),
+        Command::Preprocess {
+            input,
+            output,
+            render,
+        } => preprocess(&input, output.as_deref(), render),
+        Command::Render { input, output } => {
+            render(&input, output.as_deref()).map(|output| vec![output])
+        }
     }
 }
 
-fn preprocess(input: &Path, output: &Path) -> Result<PathBuf, CliError> {
+fn preprocess(input: &Path, output: Option<&Path>, render: bool) -> Result<Vec<PathBuf>, CliError> {
     let input_format = Format::from_path(input)?;
-    let output_format = Format::from_path(output)?;
+    let output = output
+        .map(Path::to_path_buf)
+        .unwrap_or_else(|| preprocessed_output_path(input));
+    let output_format = Format::from_path(&output)?;
     let source = read(input)?;
     let topology = match input_format {
         Format::Yaml => {
@@ -142,19 +157,47 @@ fn preprocess(input: &Path, output: &Path) -> Result<PathBuf, CliError> {
         Format::Yaml => topology.to_yaml()?,
         Format::Json => topology.to_json()?,
     };
-    write(output, manifest)?;
-    Ok(output.to_path_buf())
+    write(&output, manifest)?;
+
+    let mut outputs = vec![output.clone()];
+    if render {
+        let svg = render_output_path(&output);
+        write(&svg, topology.render_svg())?;
+        outputs.push(svg);
+    }
+    Ok(outputs)
 }
 
-fn render(input: &Path, output: &Path) -> Result<PathBuf, CliError> {
+fn render(input: &Path, output: Option<&Path>) -> Result<PathBuf, CliError> {
     let input_format = Format::from_path(input)?;
+    let output = output
+        .map(Path::to_path_buf)
+        .unwrap_or_else(|| render_output_path(input));
     let manifest = read(input)?;
     let topology = match input_format {
         Format::Yaml => PreprocessedTopology::from_yaml(&manifest)?,
         Format::Json => PreprocessedTopology::from_json(&manifest)?,
     };
-    write(output, topology.render_svg())?;
-    Ok(output.to_path_buf())
+    write(&output, topology.render_svg())?;
+    Ok(output)
+}
+
+fn preprocessed_output_path(input: &Path) -> PathBuf {
+    let extension = input
+        .extension()
+        .expect("input format has already been determined")
+        .to_os_string();
+    let mut output = input.to_path_buf();
+    output.set_extension("preprocessed");
+    output.as_mut_os_string().push(".");
+    output.as_mut_os_string().push(extension);
+    output
+}
+
+fn render_output_path(input: &Path) -> PathBuf {
+    let mut output = input.as_os_str().to_os_string();
+    output.push(".svg");
+    PathBuf::from(output)
 }
 
 fn read(path: &Path) -> Result<String, CliError> {
@@ -222,8 +265,8 @@ lines:
         let svg = temporary_path("svg");
         fs::write(&input, TOPOLOGY_YAML).unwrap();
 
-        preprocess(&input, &manifest).unwrap();
-        render(&manifest, &svg).unwrap();
+        preprocess(&input, Some(&manifest), false).unwrap();
+        render(&manifest, Some(&svg)).unwrap();
 
         let manifest_contents = fs::read_to_string(&manifest).unwrap();
         let svg_contents = fs::read_to_string(&svg).unwrap();
@@ -239,26 +282,58 @@ lines:
     #[test]
     fn parses_commands() {
         assert!(matches!(
-            Cli::try_parse_from([
-                "mtrd-devtools",
-                "preprocess",
-                "topology.yaml",
-                "preprocessed.yaml"
-            ])
-            .unwrap()
-            .command,
-            Command::Preprocess { .. }
+            Cli::try_parse_from(["mtrd-devtools", "preprocess", "-r", "topology.yaml"])
+                .unwrap()
+                .command,
+            Command::Preprocess {
+                output: None,
+                render: true,
+                ..
+            }
         ));
         assert!(matches!(
-            Cli::try_parse_from([
-                "mtrd-devtools",
-                "render",
-                "preprocessed.yaml",
-                "preprocessed.svg"
-            ])
-            .unwrap()
-            .command,
-            Command::Render { .. }
+            Cli::try_parse_from(["mtrd-devtools", "render", "preprocessed.yaml"])
+                .unwrap()
+                .command,
+            Command::Render { output: None, .. }
         ));
+    }
+
+    #[test]
+    fn derives_default_output_paths() {
+        assert_eq!(
+            preprocessed_output_path(Path::new("examples/topology.yaml")),
+            Path::new("examples/topology.preprocessed.yaml")
+        );
+        assert_eq!(
+            preprocessed_output_path(Path::new("examples/topology.json")),
+            Path::new("examples/topology.preprocessed.json")
+        );
+        assert_eq!(
+            render_output_path(Path::new("examples/topology.preprocessed.yaml")),
+            Path::new("examples/topology.preprocessed.yaml.svg")
+        );
+    }
+
+    #[test]
+    fn preprocess_can_render_with_default_paths() {
+        let input = temporary_path("yaml");
+        fs::write(&input, TOPOLOGY_YAML).unwrap();
+
+        let outputs = preprocess(&input, None, true).unwrap();
+        let manifest = preprocessed_output_path(&input);
+        let svg = render_output_path(&manifest);
+
+        assert_eq!(outputs, [manifest.clone(), svg.clone()]);
+        assert!(
+            fs::read_to_string(&manifest)
+                .unwrap()
+                .contains("source_station_indices:")
+        );
+        assert!(fs::read_to_string(&svg).unwrap().contains("viewBox=\""));
+
+        fs::remove_file(input).unwrap();
+        fs::remove_file(manifest).unwrap();
+        fs::remove_file(svg).unwrap();
     }
 }
