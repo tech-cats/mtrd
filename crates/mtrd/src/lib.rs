@@ -23,7 +23,8 @@ pub use schematic::{
     render_schematic_svg, validate_schematic,
 };
 pub use topology::{
-    MetroTopology, TopologyBackgroundOptions, TopologyCartesianAxes, TopologyCommonStationFill,
+    DuplicateStationPositionGroup, DuplicateStationPositionGroups, MetroTopology,
+    TopologyBackgroundOptions, TopologyCartesianAxes, TopologyCommonStationFill,
     TopologyCommonStationOptions, TopologyCommonStationStroke, TopologyCoordinateOptions,
     TopologyGeographicAxes, TopologyInterchangeStationFill, TopologyInterchangeStationOptions,
     TopologyInterchangeStationStroke, TopologyLabelOptions, TopologyLength, TopologyLine,

@@ -16,6 +16,8 @@ const TAPER_LENGTH: f64 = 24.0;
 /// to rightward and downward axes before rendering. Each line path is drawn in
 /// its configured color; closed paths are joined back to their first station.
 pub fn render_topology_svg(topology: &MetroTopology) -> Result<String, TopologyRenderError> {
+    let topology = topology.clone().canonicalize_coordinates()?;
+    let topology = &topology;
     validate_topology(topology)?;
     let stations = station_index(topology)?;
     let station_lines = station_lines(topology);
