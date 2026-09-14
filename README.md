@@ -3,6 +3,85 @@
 `mtrd` works with metro topology and schematic manifests. YAML is the primary
 human-editable format, while JSON uses the same schemas for WebUI interchange.
 
+## Quick Start
+
+### 1. Install the CLI
+
+Install the stable Rust toolchain and run this from the repository root:
+
+```console
+cargo install --path crates/mtrd
+mtrd --version
+```
+
+The remaining examples assume Cargo's binary directory is on `PATH`. If it is
+not, invoke the installed binary by its full path or use
+`cargo run -q -p mtrd --` in place of `mtrd`.
+
+### 2. Create a topology manifest
+
+Save this small, complete example as `my-map.yaml`:
+
+```yaml
+options:
+  lines: { width: 6.0 }
+  stations:
+    common:
+      fill: { diameter: 10.0, color: { type: unified, value: '#FFFFFF' } }
+      stroke: { width: 2.0, alignment: outside, color: { type: follow-line } }
+    interchange:
+      fill: { width: 12.0, color: '#FFFFFF' }
+      stroke: { width: 2.0, alignment: outside, color: '#000000' }
+stations:
+  - id: central
+    names:
+      en: [Central]
+    position: [0.0, 0.0]
+  - id: park
+    names:
+      en: [Park]
+    position: [120.0, 0.0]
+lines:
+  - id: red
+    names:
+      en: [Red Line]
+    color: '#E53935'
+    paths:
+      - stations: [central, park]
+        closed: false
+```
+
+Station and line IDs must be unique. A path lists station IDs in travel order,
+and `names.en[0]` is the displayed English label. Positions are `[x, y]`, with
+positive `x` pointing right and positive `y` pointing down by default.
+
+### 3. Check and render it
+
+Validate the file before rendering it:
+
+```console
+mtrd check --topology my-map.yaml
+# my-map.yaml: valid
+
+mtrd render --topology --output my-map.svg my-map.yaml
+# my-map.svg
+```
+
+Open `my-map.svg` in a browser or SVG viewer. After changing station positions,
+labels, line colours, or path order, repeat these two commands. Omitting
+`--output` writes `my-map.yaml.svg`.
+
+To start from a larger working example instead, ask the CLI to create one:
+
+```console
+mtrd example topology > my-map.yaml
+```
+
+Use `mtrd example schematic > my-schematic.yaml` when you need an explicitly
+laid-out schematic rather than a topology graph. Bundled examples are printed
+as YAML. When checking or rendering a saved file, its extension selects YAML or
+JSON and the `--topology`/`--schematic` flag selects the strict manifest schema.
+
 ## Commands
 
 ```console
@@ -168,10 +247,8 @@ Canonical YAML keeps positions and each locale's names in compact flow style:
 ```yaml
 position: [754.0, 323.0]
 names:
-  en: [Munich]
   de: [München]
-  zh-TW: [慕尼黑]
-  fr: [Munich]
+  en: [Munich]
 ```
 
 ## Schematic manifest library API
