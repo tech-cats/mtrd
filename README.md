@@ -124,7 +124,7 @@ mtrd render --topology map.yaml
 # Use -T to write ./mtrd-<microsecond timestamp>.svg.
 mtrd render -tT map.yaml
 
-# Preprocess a topology for schematic generation (currently stops before layout).
+# Initialise and contract a topology for schematic generation (currently stops before layout).
 mtrd generate topology.yaml
 # Short aliases are also available.
 mtrd g topology.yaml schematic.yaml
@@ -258,13 +258,14 @@ names:
   en: [Munich]
 ```
 
-`generate`, with aliases `g` and `gen`, validates and preprocesses its topology
-input. The layout stages are not implemented yet, so it currently exits with
+`generate`, with aliases `g` and `gen`, validates and canonicalises the
+coordinates of its topology input before contracting its physical graph. The
+layout stages are not implemented yet, so it currently exits with
 `schematic generation is not implemented yet` and creates no output. Once the
 remaining stages are implemented, its default destination will be
 `<input stem>.schematic.yaml`; an explicit positional destination and `-T`/
 `--timestamp` naming are already accepted.
-
+w
 ## Schematic manifest library API
 
 The library also defines the semantic schematic-map schema documented in

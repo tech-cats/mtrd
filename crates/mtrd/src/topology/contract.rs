@@ -9,18 +9,18 @@ use super::{MetroTopology, TopologyPosition, validation::TopologyRenderError};
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct PreprocessedTopology {
+pub struct ContractedTopology {
     pub source: MetroTopology,
-    pub nodes: Vec<PreprocessedNode>,
-    pub edges: Vec<PreprocessedEdge>,
-    pub paths: Vec<PreprocessedPath>,
+    pub nodes: Vec<ContractedNode>,
+    pub edges: Vec<ContractedEdge>,
+    pub paths: Vec<ContractedPath>,
     #[serde(alias = "neighbour_orders")]
     pub neighbor_orders: Vec<StationNeighborOrder>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "kebab-case", deny_unknown_fields)]
-pub enum PreprocessedNode {
+pub enum ContractedNode {
     Station {
         source_station_index: usize,
         retention_reasons: Vec<RetentionReason>,
@@ -34,7 +34,7 @@ pub enum PreprocessedNode {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct PreprocessedEdge {
+pub struct ContractedEdge {
     pub endpoint_a: usize,
     pub endpoint_b: usize,
     pub source_station_indices: Vec<usize>,
@@ -42,7 +42,7 @@ pub struct PreprocessedEdge {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct PreprocessedPath {
+pub struct ContractedPath {
     pub line_index: usize,
     pub path_index: usize,
     pub closed: bool,
@@ -128,7 +128,7 @@ pub(crate) struct SourceOccurrence {
     pub(crate) forward: bool,
 }
 
-/// A source path segment involved in a preprocessing diagnostic.
+/// A source path segment involved in a contraction diagnostic.
 ///
 /// Numeric indices are zero-based. User-facing error messages display path and
 /// segment numbers as one-based values.
@@ -159,11 +159,14 @@ pub enum UnsupportedIntersectionKind {
     MultiplePhysicalEdges { count: usize },
 }
 
-/// A topology validation or geometric preprocessing failure.
+/// A topology validation or geometric contraction failure.
 #[derive(Debug, PartialEq)]
-pub enum TopologyPreprocessError {
+pub enum TopologyContractError {
     /// The source topology violates the ordinary topology-manifest contract.
     InvalidTopology(TopologyRenderError),
+
+    /// The topology has not yet been converted to canonical coordinates.
+    NonCanonicalCoordinates,
 
     /// A station lies inside another segment and requires an authoring decision.
     VirtualCrossingDecisionRequired {
@@ -180,10 +183,13 @@ pub enum TopologyPreprocessError {
     },
 }
 
-impl fmt::Display for TopologyPreprocessError {
+impl fmt::Display for TopologyContractError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::InvalidTopology(error) => write!(formatter, "invalid metro topology: {error}"),
+            Self::NonCanonicalCoordinates => {
+                formatter.write_str("topology coordinates must be canonicalised before contraction")
+            }
             Self::VirtualCrossingDecisionRequired {
                 station,
                 position,
@@ -216,7 +222,7 @@ impl fmt::Display for TopologyPreprocessError {
     }
 }
 
-impl Error for TopologyPreprocessError {
+impl Error for TopologyContractError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
             Self::InvalidTopology(error) => Some(error),
@@ -278,25 +284,33 @@ struct GraphSection {
 
 #[derive(Debug)]
 struct ContractedGraph {
-    edges: Vec<PreprocessedEdge>,
+    edges: Vec<ContractedEdge>,
     section_to_reduced: Vec<(usize, bool)>,
-    node_to_preprocessed: Vec<Option<usize>>,
+    node_to_contracted: Vec<Option<usize>>,
 }
 
 type SegmentLookup = HashMap<(usize, usize), usize>;
 
-pub fn preprocess_topology(
+/// Contract an initialised topology whose coordinates are canonical Cartesian
+/// `r-d` values.
+///
+/// Call [`MetroTopology::canonicalize_coordinates`] after loading a manifest
+/// and before calling this function.
+pub fn contract_topology(
     topology: MetroTopology,
-) -> Result<PreprocessedTopology, TopologyPreprocessError> {
-    preprocess_topology_with_policy(topology, &[])
+) -> Result<ContractedTopology, TopologyContractError> {
+    if topology.options.coordinates != Default::default() {
+        return Err(TopologyContractError::NonCanonicalCoordinates);
+    }
+    contract_topology_with_policy(topology, &[])
 }
 
-pub(crate) fn preprocess_topology_with_policy(
+pub(crate) fn contract_topology_with_policy(
     topology: MetroTopology,
     policies: &[PolicyRetention],
-) -> Result<PreprocessedTopology, TopologyPreprocessError> {
+) -> Result<ContractedTopology, TopologyContractError> {
     super::validation::validate_topology_structure(&topology)
-        .map_err(TopologyPreprocessError::InvalidTopology)?;
+        .map_err(TopologyContractError::InvalidTopology)?;
 
     let station_indices: HashMap<&str, usize> = topology
         .stations
@@ -373,12 +387,12 @@ pub(crate) fn preprocess_topology_with_policy(
     let retained: Vec<bool> = reasons.iter().map(|reasons| !reasons.is_empty()).collect();
 
     let graph_node_count = topology.stations.len() + crossings.len();
-    let mut node_to_preprocessed = vec![None; graph_node_count];
+    let mut node_to_contracted = vec![None; graph_node_count];
     let mut nodes = Vec::new();
     for (source_station_index, retention_reasons) in reasons.iter().enumerate() {
         if !neighbors[source_station_index].is_empty() && !retention_reasons.is_empty() {
-            node_to_preprocessed[source_station_index] = Some(nodes.len());
-            nodes.push(PreprocessedNode::Station {
+            node_to_contracted[source_station_index] = Some(nodes.len());
+            nodes.push(ContractedNode::Station {
                 source_station_index,
                 retention_reasons: retention_reasons.clone(),
             });
@@ -386,8 +400,8 @@ pub(crate) fn preprocess_topology_with_policy(
     }
     for (crossing_index, crossing) in crossings.iter().enumerate() {
         let graph_node = topology.stations.len() + crossing_index;
-        node_to_preprocessed[graph_node] = Some(nodes.len());
-        nodes.push(PreprocessedNode::VirtualCrossing {
+        node_to_contracted[graph_node] = Some(nodes.len());
+        nodes.push(ContractedNode::VirtualCrossing {
             position: crossing.position,
             incident_edges: Vec::new(),
             continuations: Vec::new(),
@@ -401,7 +415,7 @@ pub(crate) fn preprocess_topology_with_policy(
     let contracted = contract_sections(
         &sections,
         &graph_retained,
-        node_to_preprocessed,
+        node_to_contracted,
         topology.stations.len(),
     );
     populate_virtual_crossings(
@@ -423,7 +437,7 @@ pub(crate) fn preprocess_topology_with_policy(
     );
     let neighbor_orders = neighbor_orders(&topology, &neighbors);
 
-    Ok(PreprocessedTopology {
+    Ok(ContractedTopology {
         source: topology,
         nodes,
         edges: contracted.edges,
@@ -606,7 +620,7 @@ fn split_physical_edges(
 fn contract_sections(
     sections: &[GraphSection],
     retained: &[bool],
-    node_to_preprocessed: Vec<Option<usize>>,
+    node_to_contracted: Vec<Option<usize>>,
     station_count: usize,
 ) -> ContractedGraph {
     let mut adjacent = vec![Vec::<(usize, usize)>::new(); retained.len()];
@@ -647,21 +661,21 @@ fn contract_sections(
         );
 
         let endpoint_a =
-            node_to_preprocessed[chain_nodes[0]].expect("a reduced edge endpoint must be retained");
-        let endpoint_b = node_to_preprocessed[*chain_nodes.last().unwrap()]
+            node_to_contracted[chain_nodes[0]].expect("a reduced edge endpoint must be retained");
+        let endpoint_b = node_to_contracted[*chain_nodes.last().unwrap()]
             .expect("a reduced edge endpoint must be retained");
         if endpoint_a > endpoint_b {
             chain_nodes.reverse();
             chain_sections.reverse();
         }
-        let endpoint_a = node_to_preprocessed[chain_nodes[0]].unwrap();
-        let endpoint_b = node_to_preprocessed[*chain_nodes.last().unwrap()].unwrap();
+        let endpoint_a = node_to_contracted[chain_nodes[0]].unwrap();
+        let endpoint_b = node_to_contracted[*chain_nodes.last().unwrap()].unwrap();
         let reduced_index = edges.len();
         for (&section_index, pair) in chain_sections.iter().zip(chain_nodes.windows(2)) {
             section_to_reduced[section_index] =
                 (reduced_index, sections[section_index].a == pair[0]);
         }
-        edges.push(PreprocessedEdge {
+        edges.push(ContractedEdge {
             endpoint_a,
             endpoint_b,
             source_station_indices: chain_nodes
@@ -675,7 +689,7 @@ fn contract_sections(
     ContractedGraph {
         edges,
         section_to_reduced,
-        node_to_preprocessed,
+        node_to_contracted,
     }
 }
 
@@ -719,7 +733,7 @@ fn extend_section_chain(
 }
 
 fn populate_virtual_crossings(
-    nodes: &mut [PreprocessedNode],
+    nodes: &mut [ContractedNode],
     crossings: &[DetectedCrossing],
     sections: &[GraphSection],
     physical_sections: &[Vec<usize>],
@@ -729,7 +743,7 @@ fn populate_virtual_crossings(
 ) {
     for (crossing_index, crossing) in crossings.iter().enumerate() {
         let graph_node = station_count + crossing_index;
-        let preprocessed_node = contracted.node_to_preprocessed[graph_node].unwrap();
+        let contracted_node = contracted.node_to_contracted[graph_node].unwrap();
         let mut incident_with_bearings = Vec::new();
         let mut continuations = Vec::new();
         for &physical_edge_index in &crossing.physical_edges {
@@ -769,7 +783,7 @@ fn populate_virtual_crossings(
                 .total_cmp(&right.1)
                 .then(left.0.edge_index.cmp(&right.0.edge_index))
         });
-        nodes[preprocessed_node] = PreprocessedNode::VirtualCrossing {
+        nodes[contracted_node] = ContractedNode::VirtualCrossing {
             position: crossing.position,
             incident_edges: incident_with_bearings
                 .into_iter()
@@ -786,7 +800,7 @@ fn incident_edge(
     contracted: &ContractedGraph,
 ) -> IncidentEdge {
     let edge_index = contracted.section_to_reduced[section_index].0;
-    let node_index = contracted.node_to_preprocessed[graph_node].unwrap();
+    let node_index = contracted.node_to_contracted[graph_node].unwrap();
     let edge = &contracted.edges[edge_index];
     IncidentEdge {
         edge_index,
@@ -819,7 +833,7 @@ fn reduced_paths(
     physical_sections: &[Vec<usize>],
     sections: &[GraphSection],
     section_to_reduced: &[(usize, bool)],
-) -> Vec<PreprocessedPath> {
+) -> Vec<ContractedPath> {
     let mut paths = Vec::new();
     for (line_index, line) in topology.lines.iter().enumerate() {
         for (path_index, path) in line.paths.iter().enumerate() {
@@ -869,7 +883,7 @@ fn reduced_paths(
                     }
                 }
             }
-            paths.push(PreprocessedPath {
+            paths.push(ContractedPath {
                 line_index,
                 path_index,
                 closed: path.closed,
@@ -947,7 +961,7 @@ enum SegmentIntersection {
 fn classify_intersections(
     topology: &MetroTopology,
     edges: &[PhysicalEdge],
-) -> Result<Vec<DetectedCrossing>, TopologyPreprocessError> {
+) -> Result<Vec<DetectedCrossing>, TopologyContractError> {
     for (station_index, station) in topology.stations.iter().enumerate() {
         let mut involved = Vec::new();
         for edge in edges {
@@ -970,7 +984,7 @@ fn classify_intersections(
                 involved.extend(located_occurrences(topology, edge));
             }
             sort_occurrences(&mut involved);
-            return Err(TopologyPreprocessError::VirtualCrossingDecisionRequired {
+            return Err(TopologyContractError::VirtualCrossingDecisionRequired {
                 station: station.id.clone(),
                 position: station.position,
                 occurrences: involved,
@@ -1004,7 +1018,7 @@ fn classify_intersections(
                     let mut occurrences = located_occurrences(topology, left);
                     occurrences.extend(located_occurrences(topology, right));
                     sort_occurrences(&mut occurrences);
-                    return Err(TopologyPreprocessError::UnsupportedTopologyIntersection {
+                    return Err(TopologyContractError::UnsupportedTopologyIntersection {
                         kind: UnsupportedIntersectionKind::CollinearOverlap,
                         position,
                         occurrences,
@@ -1038,7 +1052,7 @@ fn classify_intersections(
                 .flat_map(|&edge| located_occurrences(topology, &edges[edge]))
                 .collect::<Vec<_>>();
             sort_occurrences(&mut occurrences);
-            return Err(TopologyPreprocessError::UnsupportedTopologyIntersection {
+            return Err(TopologyContractError::UnsupportedTopologyIntersection {
                 kind: UnsupportedIntersectionKind::MultiplePhysicalEdges {
                     count: physical_edges.len(),
                 },
@@ -1260,12 +1274,12 @@ stations:
         }
     }
 
-    fn reasons(result: &PreprocessedTopology, station: usize) -> &[RetentionReason] {
+    fn reasons(result: &ContractedTopology, station: usize) -> &[RetentionReason] {
         result
             .nodes
             .iter()
             .find_map(|node| match node {
-                PreprocessedNode::Station {
+                ContractedNode::Station {
                     source_station_index,
                     retention_reasons,
                 } if *source_station_index == station => Some(retention_reasons.as_slice()),
@@ -1274,18 +1288,48 @@ stations:
             .unwrap()
     }
 
-    fn retained_stations(result: &PreprocessedTopology) -> Vec<usize> {
+    fn retained_stations(result: &ContractedTopology) -> Vec<usize> {
         result
             .nodes
             .iter()
             .filter_map(|node| match node {
-                PreprocessedNode::Station {
+                ContractedNode::Station {
                     source_station_index,
                     ..
                 } => Some(*source_station_index),
-                PreprocessedNode::VirtualCrossing { .. } => None,
+                ContractedNode::VirtualCrossing { .. } => None,
             })
             .collect()
+    }
+
+    #[test]
+    fn canonicalizes_source_coordinates_before_contracting() {
+        let mut source = topology(
+            &[("A", 20.0, -10.0), ("B", 30.0, -20.0)],
+            &[("red", &[(&["A", "B"], false)])],
+        );
+        source.options.coordinates = crate::TopologyCoordinateOptions::Cartesian {
+            axes: crate::TopologyCartesianAxes::DownLeft,
+        };
+
+        assert!(matches!(
+            contract_topology(source.clone()),
+            Err(TopologyContractError::NonCanonicalCoordinates)
+        ));
+        let result = contract_topology(source.canonicalize_coordinates().unwrap()).unwrap();
+
+        assert_eq!(
+            result.source.options.coordinates,
+            crate::TopologyCoordinateOptions::default()
+        );
+        assert_eq!(
+            result.source.stations[0].position,
+            TopologyPosition { x: 10.0, y: 20.0 }
+        );
+        assert_eq!(
+            result.source.stations[1].position,
+            TopologyPosition { x: 20.0, y: 30.0 }
+        );
     }
 
     #[test]
@@ -1299,7 +1343,7 @@ stations:
             ],
             &[("red", &[(&["A", "B", "C", "D"], false)])],
         );
-        let result = preprocess_topology(source.clone()).unwrap();
+        let result = contract_topology(source.clone()).unwrap();
 
         assert_eq!(result.edges.len(), 1);
         assert_eq!(result.edges[0].source_station_indices, [0, 1, 2, 3]);
@@ -1329,7 +1373,7 @@ stations:
                 ("blue", &[(&["A", "B"], false)]),
             ],
         );
-        let result = preprocess_topology_with_policy(
+        let result = contract_topology_with_policy(
             source,
             &[PolicyRetention {
                 station_id: "B".into(),
@@ -1357,7 +1401,7 @@ stations:
             &[("A", 0.0, 0.0), ("B", 1.0, 0.0), ("C", 2.0, 0.0)],
             &[("red", &[(&["A", "B"], false), (&["B", "C"], false)])],
         );
-        let result = preprocess_topology(source).unwrap();
+        let result = contract_topology(source).unwrap();
         assert!(!reasons(&result, 1).contains(&RetentionReason::Interchange));
     }
 
@@ -1367,10 +1411,10 @@ stations:
             &[("A", 0.0, 0.0), ("B", 1.0, 0.0), ("C", 0.5, 1.0)],
             &[("ring", &[(&["A", "B", "C"], true)])],
         );
-        let result = preprocess_topology(small).unwrap();
+        let result = contract_topology(small).unwrap();
         assert!(result.nodes.iter().all(|node| matches!(
             node,
-            PreprocessedNode::Station { retention_reasons, .. }
+            ContractedNode::Station { retention_reasons, .. }
                 if matches!(retention_reasons.as_slice(), [RetentionReason::ShortCycle { .. }])
         )));
 
@@ -1389,8 +1433,7 @@ stations:
             .map(|(id, _, _)| id.as_str())
             .collect::<Vec<_>>();
         let result =
-            preprocess_topology(topology(&stations, &[("ring", &[(ids.as_slice(), true)])]))
-                .unwrap();
+            contract_topology(topology(&stations, &[("ring", &[(ids.as_slice(), true)])])).unwrap();
         let retained = retained_stations(&result);
         assert_eq!(retained, [0, 4, 8]);
         assert!(reasons(&result, 0).contains(&RetentionReason::CycleSeed {
@@ -1408,7 +1451,7 @@ stations:
                 ("blue", &[(&["C", "B", "A"], false)]),
             ],
         );
-        let result = preprocess_topology(source).unwrap();
+        let result = contract_topology(source).unwrap();
         assert_eq!(result.edges.len(), 2);
         assert_eq!(result.paths.len(), 2);
         assert_ne!(
@@ -1432,7 +1475,7 @@ stations:
                 ("blue", &[(&["C", "D"], false)]),
             ],
         );
-        let result = preprocess_topology(source).unwrap();
+        let result = contract_topology(source).unwrap();
         assert_eq!(result.edges.len(), 2);
         assert!(!retained_stations(&result).contains(&4));
         assert_eq!(result.source.stations.len(), 5);
@@ -1456,9 +1499,9 @@ stations:
         let orders = neighbor_orders(&source, &[vec![1, 2, 3, 4], vec![], vec![], vec![], vec![]]);
         assert_eq!(orders[0].neighbor_groups, [vec![1, 2], vec![3], vec![4]]);
 
-        let error = preprocess_topology(source).unwrap_err();
+        let error = contract_topology(source).unwrap_err();
         assert!(
-            matches!(error, TopologyPreprocessError::VirtualCrossingDecisionRequired { station, .. } if station == "E1")
+            matches!(error, TopologyContractError::VirtualCrossingDecisionRequired { station, .. } if station == "E1")
         );
     }
 
@@ -1476,10 +1519,10 @@ stations:
                 ("blue", &[(&["X", "Y"], false)]),
             ],
         );
-        let station_error = preprocess_topology(station_on_segment).unwrap_err();
+        let station_error = contract_topology(station_on_segment).unwrap_err();
         let station_message = station_error.to_string();
         assert!(
-            matches!(station_error, TopologyPreprocessError::VirtualCrossingDecisionRequired { station, ref occurrences, .. } if station == "X" && occurrences.len() == 2)
+            matches!(station_error, TopologyContractError::VirtualCrossingDecisionRequired { station, ref occurrences, .. } if station == "X" && occurrences.len() == 2)
         );
         assert!(
             station_message.contains("branch, transfer, or non-transfer crossing is ambiguous")
@@ -1499,12 +1542,12 @@ stations:
                 ("blue", &[(&["C", "D"], false)]),
             ],
         );
-        let crossing = preprocess_topology(crossing).unwrap();
+        let crossing = contract_topology(crossing).unwrap();
         assert_eq!(
             crossing
                 .nodes
                 .iter()
-                .filter(|node| matches!(node, PreprocessedNode::VirtualCrossing { .. }))
+                .filter(|node| matches!(node, ContractedNode::VirtualCrossing { .. }))
                 .count(),
             1
         );
@@ -1521,27 +1564,27 @@ stations:
                 ("blue", &[(&["C", "D"], false)]),
             ],
         );
-        let overlap_error = preprocess_topology(overlap).unwrap_err();
+        let overlap_error = contract_topology(overlap).unwrap_err();
         assert!(matches!(
             &overlap_error,
-            TopologyPreprocessError::VirtualCrossingDecisionRequired { .. }
+            TopologyContractError::VirtualCrossingDecisionRequired { .. }
         ));
         assert!(overlap_error.to_string().contains("is ambiguous"));
     }
 
     #[test]
-    fn preprocessed_structure_is_stable() {
+    fn contracted_structure_is_stable() {
         let source = topology(
             &[("A", 0.0, 0.0), ("B", 1.0, 1.0), ("C", 2.0, 0.0)],
             &[("red", &[(&["A", "B", "C"], false)])],
         );
-        let first = preprocess_topology(source.clone()).unwrap();
-        let second = preprocess_topology(source).unwrap();
+        let first = contract_topology(source.clone()).unwrap();
+        let second = contract_topology(source).unwrap();
         assert_eq!(first, second);
     }
 
     #[test]
-    fn preprocessing_does_not_apply_rendering_viewport_limits() {
+    fn contraction_does_not_apply_rendering_viewport_limits() {
         let source = topology(
             &[("A", -f64::MAX, 0.0), ("B", f64::MAX, 1.0)],
             &[("red", &[(&["A", "B"], false)])],
@@ -1550,7 +1593,7 @@ stations:
             crate::validate_topology(&source),
             Err(TopologyRenderError::CoordinateRange)
         ));
-        assert!(preprocess_topology(source).is_ok());
+        assert!(contract_topology(source).is_ok());
     }
 
     #[test]
@@ -1582,7 +1625,7 @@ stations:
                 }],
                 stations,
             };
-            let result = preprocess_topology(source).unwrap();
+            let result = contract_topology(source).unwrap();
             let retained = retained_stations(&result);
             let distances = retained
                 .iter()
@@ -1606,10 +1649,10 @@ stations:
     fn reversed_source_path_keeps_canonical_edge_orientation() {
         let stations = &[("A", 0.0, 0.0), ("B", 1.0, 1.0), ("C", 2.0, 0.0)];
         let forward =
-            preprocess_topology(topology(stations, &[("red", &[(&["A", "B", "C"], false)])]))
+            contract_topology(topology(stations, &[("red", &[(&["A", "B", "C"], false)])]))
                 .unwrap();
         let reverse =
-            preprocess_topology(topology(stations, &[("red", &[(&["C", "B", "A"], false)])]))
+            contract_topology(topology(stations, &[("red", &[(&["C", "B", "A"], false)])]))
                 .unwrap();
 
         assert_eq!(
@@ -1631,8 +1674,8 @@ stations:
         source.lines[0].paths[0].stations[1] = "missing".into();
 
         assert!(matches!(
-            preprocess_topology(source),
-            Err(TopologyPreprocessError::InvalidTopology(
+            contract_topology(source),
+            Err(TopologyContractError::InvalidTopology(
                 TopologyRenderError::UnknownStation { .. }
             ))
         ));
@@ -1652,19 +1695,19 @@ stations:
                 ("blue", &[(&["D", "C"], false)]),
             ],
         );
-        let result = preprocess_topology(source.clone()).unwrap();
-        let repeated = preprocess_topology(source.clone()).unwrap();
+        let result = contract_topology(source.clone()).unwrap();
+        let repeated = contract_topology(source.clone()).unwrap();
         assert_eq!(result, repeated);
         let crossing = result
             .nodes
             .iter()
             .find_map(|node| match node {
-                PreprocessedNode::VirtualCrossing {
+                ContractedNode::VirtualCrossing {
                     position,
                     incident_edges,
                     continuations,
                 } => Some((*position, incident_edges, continuations)),
-                PreprocessedNode::Station { .. } => None,
+                ContractedNode::Station { .. } => None,
             })
             .unwrap();
 
@@ -1717,13 +1760,13 @@ stations:
                 ("green", &[(&["E", "F"], false)]),
             ],
         );
-        let result = preprocess_topology(source).unwrap();
+        let result = contract_topology(source).unwrap();
         let crossing_positions = result
             .nodes
             .iter()
             .filter_map(|node| match node {
-                PreprocessedNode::VirtualCrossing { position, .. } => Some(*position),
-                PreprocessedNode::Station { .. } => None,
+                ContractedNode::VirtualCrossing { position, .. } => Some(*position),
+                ContractedNode::Station { .. } => None,
             })
             .collect::<Vec<_>>();
         let red_spans = result.paths[0]
@@ -1764,13 +1807,13 @@ stations:
                 ("blue", &[(&["C", "D"], false)]),
             ],
         );
-        let result = preprocess_topology(source).unwrap();
+        let result = contract_topology(source).unwrap();
 
         assert_eq!(
             result
                 .nodes
                 .iter()
-                .filter(|node| matches!(node, PreprocessedNode::VirtualCrossing { .. }))
+                .filter(|node| matches!(node, ContractedNode::VirtualCrossing { .. }))
                 .count(),
             1
         );
@@ -1795,12 +1838,12 @@ stations:
                 ("green", &[(&["E", "F"], false)]),
             ],
         );
-        let error = preprocess_topology(source).unwrap_err();
+        let error = contract_topology(source).unwrap_err();
         let message = error.to_string();
 
         assert!(matches!(
             error,
-            TopologyPreprocessError::UnsupportedTopologyIntersection {
+            TopologyContractError::UnsupportedTopologyIntersection {
                 kind: UnsupportedIntersectionKind::MultiplePhysicalEdges { count: 3 },
                 ref occurrences,
                 ..

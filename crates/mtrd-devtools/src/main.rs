@@ -1,14 +1,14 @@
-mod preprocessed;
+mod contracted;
 
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 use clap::{Parser, Subcommand};
-use mtrd::{MetroTopology, TopologyPreprocessError};
+use mtrd::MetroTopology;
 use thiserror::Error;
 
-use self::preprocessed::{PreprocessedManifestError, PreprocessedTopology};
+use self::contracted::{ContractedManifestError, ContractedTopology};
 
 #[derive(Debug, Parser)]
 #[command(name = "mtrd-devtools", about = "Inspect the mtrd generation pipeline")]
@@ -19,22 +19,22 @@ struct Cli {
 
 #[derive(Debug, Subcommand)]
 enum Command {
-    /// Generate a preprocessed topology manifest.
-    Preprocess {
+    /// Generate a contracted topology manifest.
+    Contract {
         /// Source topology manifest in YAML or JSON.
         input: PathBuf,
 
-        /// Destination preprocessed manifest (defaults to <input stem>.preprocessed.<extension>).
+        /// Destination contracted manifest (defaults to <input stem>.contracted.<extension>).
         output: Option<PathBuf>,
 
-        /// Also render the generated preprocessed manifest as SVG.
+        /// Also render the generated contracted manifest as SVG.
         #[arg(short, long)]
         render: bool,
     },
 
-    /// Render a preprocessed topology manifest as SVG.
+    /// Render a contracted topology manifest as SVG.
     Render {
-        /// Preprocessed topology manifest in YAML or JSON.
+        /// Contracted topology manifest in YAML or JSON.
         input: PathBuf,
 
         /// Destination SVG file (defaults to <input path>.svg).
@@ -97,10 +97,7 @@ enum CliError {
     },
 
     #[error(transparent)]
-    Preprocess(#[from] TopologyPreprocessError),
-
-    #[error(transparent)]
-    PreprocessedManifest(#[from] PreprocessedManifestError),
+    ContractedManifest(#[from] ContractedManifestError),
 }
 
 fn main() -> ExitCode {
@@ -120,22 +117,22 @@ fn main() -> ExitCode {
 
 fn run(cli: Cli) -> Result<Vec<PathBuf>, CliError> {
     match cli.command {
-        Command::Preprocess {
+        Command::Contract {
             input,
             output,
             render,
-        } => preprocess(&input, output.as_deref(), render),
+        } => contract(&input, output.as_deref(), render),
         Command::Render { input, output } => {
             render(&input, output.as_deref()).map(|output| vec![output])
         }
     }
 }
 
-fn preprocess(input: &Path, output: Option<&Path>, render: bool) -> Result<Vec<PathBuf>, CliError> {
+fn contract(input: &Path, output: Option<&Path>, render: bool) -> Result<Vec<PathBuf>, CliError> {
     let input_format = Format::from_path(input)?;
     let output = output
         .map(Path::to_path_buf)
-        .unwrap_or_else(|| preprocessed_output_path(input));
+        .unwrap_or_else(|| contracted_output_path(input));
     let output_format = Format::from_path(&output)?;
     let source = read(input)?;
     let topology = match input_format {
@@ -152,7 +149,7 @@ fn preprocess(input: &Path, output: Option<&Path>, render: bool) -> Result<Vec<P
             })?
         }
     };
-    let topology = PreprocessedTopology::generate(topology)?;
+    let topology = ContractedTopology::generate(topology)?;
     let manifest = match output_format {
         Format::Yaml => topology.to_yaml()?,
         Format::Json => topology.to_json()?,
@@ -162,7 +159,7 @@ fn preprocess(input: &Path, output: Option<&Path>, render: bool) -> Result<Vec<P
     let mut outputs = vec![output.clone()];
     if render {
         let svg = render_output_path(&output);
-        write(&svg, topology.render_svg())?;
+        write(&svg, topology.render_svg()?)?;
         outputs.push(svg);
     }
     Ok(outputs)
@@ -175,20 +172,20 @@ fn render(input: &Path, output: Option<&Path>) -> Result<PathBuf, CliError> {
         .unwrap_or_else(|| render_output_path(input));
     let manifest = read(input)?;
     let topology = match input_format {
-        Format::Yaml => PreprocessedTopology::from_yaml(&manifest)?,
-        Format::Json => PreprocessedTopology::from_json(&manifest)?,
+        Format::Yaml => ContractedTopology::from_yaml(&manifest)?,
+        Format::Json => ContractedTopology::from_json(&manifest)?,
     };
-    write(&output, topology.render_svg())?;
+    write(&output, topology.render_svg()?)?;
     Ok(output)
 }
 
-fn preprocessed_output_path(input: &Path) -> PathBuf {
+fn contracted_output_path(input: &Path) -> PathBuf {
     let extension = input
         .extension()
         .expect("input format has already been determined")
         .to_os_string();
     let mut output = input.to_path_buf();
-    output.set_extension("preprocessed");
+    output.set_extension("contracted");
     output.as_mut_os_string().push(".");
     output.as_mut_os_string().push(extension);
     output
@@ -259,13 +256,13 @@ lines:
     }
 
     #[test]
-    fn preprocesses_then_renders_saved_manifest() {
+    fn contracts_then_renders_saved_manifest() {
         let input = temporary_path("topology.yaml");
-        let manifest = temporary_path("preprocessed.yaml");
+        let manifest = temporary_path("contracted.yaml");
         let svg = temporary_path("svg");
         fs::write(&input, TOPOLOGY_YAML).unwrap();
 
-        preprocess(&input, Some(&manifest), false).unwrap();
+        contract(&input, Some(&manifest), false).unwrap();
         render(&manifest, Some(&svg)).unwrap();
 
         let manifest_contents = fs::read_to_string(&manifest).unwrap();
@@ -282,46 +279,47 @@ lines:
     #[test]
     fn parses_commands() {
         assert!(matches!(
-            Cli::try_parse_from(["mtrd-devtools", "preprocess", "-r", "topology.yaml"])
+            Cli::try_parse_from(["mtrd-devtools", "contract", "-r", "topology.yaml"])
                 .unwrap()
                 .command,
-            Command::Preprocess {
+            Command::Contract {
                 output: None,
                 render: true,
                 ..
             }
         ));
         assert!(matches!(
-            Cli::try_parse_from(["mtrd-devtools", "render", "preprocessed.yaml"])
+            Cli::try_parse_from(["mtrd-devtools", "render", "contracted.yaml"])
                 .unwrap()
                 .command,
             Command::Render { output: None, .. }
         ));
+        assert!(Cli::try_parse_from(["mtrd-devtools", "preprocess", "topology.yaml"]).is_err());
     }
 
     #[test]
     fn derives_default_output_paths() {
         assert_eq!(
-            preprocessed_output_path(Path::new("examples/topology.yaml")),
-            Path::new("examples/topology.preprocessed.yaml")
+            contracted_output_path(Path::new("examples/topology.yaml")),
+            Path::new("examples/topology.contracted.yaml")
         );
         assert_eq!(
-            preprocessed_output_path(Path::new("examples/topology.json")),
-            Path::new("examples/topology.preprocessed.json")
+            contracted_output_path(Path::new("examples/topology.json")),
+            Path::new("examples/topology.contracted.json")
         );
         assert_eq!(
-            render_output_path(Path::new("examples/topology.preprocessed.yaml")),
-            Path::new("examples/topology.preprocessed.yaml.svg")
+            render_output_path(Path::new("examples/topology.contracted.yaml")),
+            Path::new("examples/topology.contracted.yaml.svg")
         );
     }
 
     #[test]
-    fn preprocess_can_render_with_default_paths() {
+    fn contract_can_render_with_default_paths() {
         let input = temporary_path("yaml");
         fs::write(&input, TOPOLOGY_YAML).unwrap();
 
-        let outputs = preprocess(&input, None, true).unwrap();
-        let manifest = preprocessed_output_path(&input);
+        let outputs = contract(&input, None, true).unwrap();
+        let manifest = contracted_output_path(&input);
         let svg = render_output_path(&manifest);
 
         assert_eq!(outputs, [manifest.clone(), svg.clone()]);

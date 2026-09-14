@@ -1,61 +1,66 @@
 mod render;
 
 use mtrd::{
-    MetroTopology, PreprocessedNode, PreprocessedTopology as InnerPreprocessedTopology,
-    TopologyPreprocessError, preprocess_topology,
+    ContractedNode, ContractedTopology as InnerContractedTopology, MetroTopology,
+    TopologyContractError, TopologyRenderError, contract_topology,
 };
 use thiserror::Error;
 
 #[derive(Debug, Clone, PartialEq)]
-pub(crate) struct PreprocessedTopology(InnerPreprocessedTopology);
+pub(crate) struct ContractedTopology(InnerContractedTopology);
 
 #[derive(Debug, Error)]
-pub(crate) enum PreprocessedManifestError {
-    #[error("invalid preprocessed topology YAML: {0}")]
+pub(crate) enum ContractedManifestError {
+    #[error("invalid contracted topology YAML: {0}")]
     Yaml(#[from] serde_yaml::Error),
 
-    #[error("invalid preprocessed topology JSON: {0}")]
+    #[error("invalid contracted topology JSON: {0}")]
     Json(#[from] serde_json::Error),
 
-    #[error("invalid preprocessed topology manifest: {0}")]
+    #[error("invalid contracted topology manifest: {0}")]
     InvalidReference(String),
+
+    #[error(transparent)]
+    Topology(#[from] TopologyRenderError),
+
+    #[error(transparent)]
+    Contract(#[from] TopologyContractError),
 }
 
-impl PreprocessedTopology {
-    pub(crate) fn generate(topology: MetroTopology) -> Result<Self, TopologyPreprocessError> {
-        preprocess_topology(topology).map(Self)
+impl ContractedTopology {
+    pub(crate) fn generate(topology: MetroTopology) -> Result<Self, ContractedManifestError> {
+        let topology = topology.canonicalize_coordinates()?;
+        contract_topology(topology).map(Self).map_err(Into::into)
     }
 
-    pub(crate) fn from_yaml(yaml: &str) -> Result<Self, PreprocessedManifestError> {
+    pub(crate) fn from_yaml(yaml: &str) -> Result<Self, ContractedManifestError> {
         let topology = serde_yaml::from_str(yaml)?;
         validate_references(&topology)?;
         Ok(Self(topology))
     }
 
-    pub(crate) fn to_yaml(&self) -> Result<String, PreprocessedManifestError> {
+    pub(crate) fn to_yaml(&self) -> Result<String, ContractedManifestError> {
         serde_yaml::to_string(&self.0)
             .map(inline_yaml_positions)
             .map_err(Into::into)
     }
 
-    pub(crate) fn from_json(json: &str) -> Result<Self, PreprocessedManifestError> {
+    pub(crate) fn from_json(json: &str) -> Result<Self, ContractedManifestError> {
         let topology = serde_json::from_str(json)?;
         validate_references(&topology)?;
         Ok(Self(topology))
     }
 
-    pub(crate) fn to_json(&self) -> Result<String, PreprocessedManifestError> {
+    pub(crate) fn to_json(&self) -> Result<String, ContractedManifestError> {
         serde_json::to_string(&self.0).map_err(Into::into)
     }
 
-    pub(crate) fn render_svg(&self) -> String {
-        render::render_preprocessed_topology_svg(&self.0)
+    pub(crate) fn render_svg(&self) -> Result<String, ContractedManifestError> {
+        render::render_contracted_topology_svg(&self.0).map_err(Into::into)
     }
 }
 
-fn validate_references(
-    topology: &InnerPreprocessedTopology,
-) -> Result<(), PreprocessedManifestError> {
+fn validate_references(topology: &InnerContractedTopology) -> Result<(), ContractedManifestError> {
     let node_count = topology.nodes.len();
     let edge_count = topology.edges.len();
     let station_count = topology.source.stations.len();
@@ -82,7 +87,7 @@ fn validate_references(
 
     for (node_index, node) in topology.nodes.iter().enumerate() {
         match node {
-            PreprocessedNode::Station {
+            ContractedNode::Station {
                 source_station_index,
                 ..
             } if *source_station_index >= station_count => {
@@ -90,7 +95,7 @@ fn validate_references(
                     "nodes[{node_index}] refers to source station {source_station_index}, but there are {station_count} stations"
                 )));
             }
-            PreprocessedNode::VirtualCrossing {
+            ContractedNode::VirtualCrossing {
                 incident_edges,
                 continuations,
                 ..
@@ -141,8 +146,8 @@ fn validate_references(
     Ok(())
 }
 
-fn invalid_reference(message: String) -> PreprocessedManifestError {
-    PreprocessedManifestError::InvalidReference(message)
+fn invalid_reference(message: String) -> ContractedManifestError {
+    ContractedManifestError::InvalidReference(message)
 }
 
 fn inline_yaml_positions(yaml: String) -> String {
@@ -226,7 +231,7 @@ stations:
 
     #[test]
     fn round_trips_yaml_and_json_and_renders_svg() {
-        let topology = PreprocessedTopology::generate(topology(
+        let topology = ContractedTopology::generate(topology(
             &[
                 ("A", 0.0, 0.0),
                 ("B", 1.0, 1.0),
@@ -242,26 +247,30 @@ stations:
         assert!(yaml.contains("neighbor_orders:"));
         assert!(yaml.contains("neighbor_groups:"));
         assert!(!yaml.contains("neighbour_orders:"));
-        assert_eq!(PreprocessedTopology::from_yaml(&yaml).unwrap(), topology);
-        assert_eq!(PreprocessedTopology::from_json(&json).unwrap(), topology);
+        assert_eq!(ContractedTopology::from_yaml(&yaml).unwrap(), topology);
+        assert_eq!(ContractedTopology::from_json(&json).unwrap(), topology);
         let alias_yaml = yaml
             .replace("neighbor_orders:", "neighbour_orders:")
             .replace("neighbor_groups:", "neighbour_groups:");
         assert_eq!(
-            PreprocessedTopology::from_yaml(&alias_yaml).unwrap(),
+            ContractedTopology::from_yaml(&alias_yaml).unwrap(),
             topology
         );
-        assert!(topology.render_svg().contains("viewBox=\""));
+        let svg = topology.render_svg().unwrap();
+        assert!(svg.contains("<title>Metro topology map</title>"));
+        assert!(svg.contains("stroke=\"#f00\""));
+        assert!(svg.contains("stroke-width=\"8\""));
+        assert!(svg.contains("viewBox=\""));
     }
 
     #[test]
     fn renders_contracted_stations_and_virtual_crossings() {
-        let contracted = PreprocessedTopology::generate(topology(
+        let contracted = ContractedTopology::generate(topology(
             &[("A", 0.0, 0.0), ("B", 1.0, 1.0), ("C", 2.0, 0.0)],
             &[("red", &["A", "B", "C"])],
         ))
         .unwrap();
-        let crossing = PreprocessedTopology::generate(topology(
+        let crossing = ContractedTopology::generate(topology(
             &[
                 ("A", -1.0, -1.0),
                 ("B", 1.0, 1.0),
@@ -275,31 +284,42 @@ stations:
         assert!(
             contracted
                 .render_svg()
+                .unwrap()
                 .contains("data-contracted-station=\"1\"")
+        );
+        let contracted_svg = contracted.render_svg().unwrap();
+        assert!(contracted_svg.contains("data-station-id=\"A\""));
+        assert!(!contracted_svg.contains("data-station-id=\"B\""));
+        assert!(contracted_svg.contains("data-station-id=\"C\""));
+        assert!(
+            crossing
+                .render_svg()
+                .unwrap()
+                .contains("data-virtual-crossing=\"true\"")
         );
         assert!(
             crossing
                 .render_svg()
-                .contains("data-virtual-crossing=\"true\"")
+                .unwrap()
+                .contains("data-continuations=")
         );
-        assert!(crossing.render_svg().contains("data-continuations="));
     }
 
     #[test]
     fn rejects_unknown_fields_and_invalid_references() {
-        let topology = PreprocessedTopology::generate(topology(
+        let topology = ContractedTopology::generate(topology(
             &[("A", 0.0, 0.0), ("B", 1.0, 1.0)],
             &[("red", &["A", "B"])],
         ))
         .unwrap();
         let yaml = topology.to_yaml().unwrap();
         let unknown = yaml.replacen("source:", "unknown: true\nsource:", 1);
-        assert!(PreprocessedTopology::from_yaml(&unknown).is_err());
+        assert!(ContractedTopology::from_yaml(&unknown).is_err());
 
         let invalid = yaml.replacen("endpoint_a: 0", "endpoint_a: 99", 1);
         assert!(matches!(
-            PreprocessedTopology::from_yaml(&invalid),
-            Err(PreprocessedManifestError::InvalidReference(_))
+            ContractedTopology::from_yaml(&invalid),
+            Err(ContractedManifestError::InvalidReference(_))
         ));
     }
 }

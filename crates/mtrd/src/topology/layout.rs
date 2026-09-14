@@ -1,4 +1,7 @@
-use super::{MetroTopology, TopologyCoordinateOptions, TopologyPosition, TopologyStation};
+use super::{
+    MetroTopology, TopologyCartesianAxes, TopologyCoordinateOptions, TopologyPosition,
+    TopologyRenderError, TopologyStation,
+};
 
 const EARTH_MEAN_RADIUS_METRES: f64 = 6_371_008.8;
 const PADDING: f64 = 48.0;
@@ -140,6 +143,23 @@ impl Projection {
 
         (projected.0.is_finite() && projected.1.is_finite()).then_some(projected)
     }
+}
+
+pub(super) fn canonicalize_coordinates(
+    mut topology: MetroTopology,
+) -> Result<MetroTopology, TopologyRenderError> {
+    let projection =
+        Projection::from_topology(&topology).ok_or(TopologyRenderError::CoordinateRange)?;
+    for station in &mut topology.stations {
+        let (x, y) = projection
+            .project(station.position)
+            .ok_or(TopologyRenderError::CoordinateRange)?;
+        station.position = TopologyPosition { x, y };
+    }
+    topology.options.coordinates = TopologyCoordinateOptions::Cartesian {
+        axes: TopologyCartesianAxes::RightDown,
+    };
+    Ok(topology)
 }
 
 fn extend_bounds(bounds: &mut Option<(f64, f64)>, value: f64) {

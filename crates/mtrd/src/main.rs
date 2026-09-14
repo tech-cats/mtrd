@@ -661,7 +661,7 @@ lines:
     }
 
     #[test]
-    fn generate_preprocesses_then_fails_without_creating_output() {
+    fn generate_contracts_then_fails_without_creating_output() {
         let input = temporary_path("yaml");
         let output = temporary_path("schematic.yaml");
         fs::write(&input, YAML).unwrap();
