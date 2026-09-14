@@ -602,6 +602,27 @@ lines:
     }
 
     #[test]
+    fn parses_convert_and_render_subcommand_aliases() {
+        let convert = Cli::try_parse_from(["mtrd", "conv", "map.yaml", "map.json"]).unwrap();
+        assert!(matches!(
+            convert.command,
+            Command::Convert { input, output }
+                if input == Path::new("map.yaml") && output == Path::new("map.json")
+        ));
+
+        let render = Cli::try_parse_from(["mtrd", "r", "-t", "map.yaml"]).unwrap();
+        assert!(matches!(
+            render.command,
+            Command::Render {
+                topology: true,
+                schematic: false,
+                input,
+                ..
+            } if input == Path::new("map.yaml")
+        ));
+    }
+
+    #[test]
     fn parses_render_flags_separately_or_combined() {
         let combined =
             Cli::try_parse_from(["mtrd", "render", "-to", "topology.svg", "topology.yaml"])
