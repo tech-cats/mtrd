@@ -265,11 +265,12 @@ stations:
 
     #[test]
     fn renders_contracted_stations_and_virtual_crossings() {
-        let contracted = ContractedTopology::generate(topology(
+        let mut source = topology(
             &[("A", 0.0, 0.0), ("B", 1.0, 1.0), ("C", 2.0, 0.0)],
             &[("red", &["A", "B", "C"])],
-        ))
-        .unwrap();
+        );
+        source.stations[1].names = [("en".into(), vec!["Contracted\nStation".into()])].into();
+        let contracted = ContractedTopology::generate(source).unwrap();
         let crossing = ContractedTopology::generate(topology(
             &[
                 ("A", -1.0, -1.0),
@@ -291,6 +292,20 @@ stations:
         assert!(contracted_svg.contains("data-station-id=\"A\""));
         assert!(!contracted_svg.contains("data-station-id=\"B\""));
         assert!(contracted_svg.contains("data-station-id=\"C\""));
+        assert!(!contracted_svg.contains("Contracted\nStation"));
+        assert_eq!(
+            contracted_svg
+                .match_indices("<g")
+                .filter(|(start, _)| {
+                    !contracted_svg[*start..]
+                        .split_once('>')
+                        .expect("every SVG element has a closing bracket")
+                        .0
+                        .ends_with('/')
+                })
+                .count(),
+            contracted_svg.matches("</g>").count()
+        );
         assert!(
             crossing
                 .render_svg()

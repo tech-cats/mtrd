@@ -24,14 +24,7 @@ pub(super) fn render_contracted_topology_svg(
         if retained[station_index] {
             continue;
         }
-        let marker = format!("data-station-id=\"{}\"", xml_escape(&station.id));
-        svg = svg.lines().filter(|line| !line.contains(&marker)).fold(
-            String::new(),
-            |mut output, line| {
-                writeln!(output, "{line}").unwrap();
-                output
-            },
-        );
+        remove_station_element(&mut svg, &station.id);
     }
     let closing = svg
         .rfind("</svg>")
@@ -143,6 +136,19 @@ pub(super) fn render_contracted_topology_svg(
     }
     svg.push_str("  </g>\n</svg>\n");
     Ok(svg)
+}
+
+fn remove_station_element(svg: &mut String, station_id: &str) {
+    let opening = format!("<g data-station-id=\"{}\"", xml_escape(station_id));
+    let start = svg
+        .find(&opening)
+        .expect("the topology renderer emits every station element");
+    let end = start
+        + svg[start..]
+            .find("</g>")
+            .expect("the topology renderer closes every station element")
+        + "</g>".len();
+    svg.drain(start..end);
 }
 
 fn incident_name(incident: &IncidentEdge) -> String {
