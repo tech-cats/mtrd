@@ -61,6 +61,7 @@ mod tests {
 
     const SCHEMATIC_YAML: &str = r##"
 options:
+  languages: { set: [en], primary: en }
   background:
     color: "#ffffff"
   lines:
@@ -214,6 +215,32 @@ lines:
                 [2]["port"]["interchange"]["type"],
             "single-perpendicular"
         );
+    }
+
+    #[test]
+    fn rejects_schematic_name_languages_outside_global_set() {
+        let mut schematic = SchematicManifest::from_yaml(SCHEMATIC_YAML).unwrap();
+        schematic.lines[0]
+            .names
+            .insert("fr-ch".into(), vec!["Ligne A".into()]);
+        assert!(matches!(
+            validate_schematic(&schematic),
+            Err(SchematicRenderError::Languages(
+                crate::LanguageError::NameLanguages { kind: "line", .. }
+            ))
+        ));
+
+        schematic.lines[0].names.remove("fr-ch");
+        schematic.stations[0].names.remove("en");
+        assert!(matches!(
+            validate_schematic(&schematic),
+            Err(SchematicRenderError::Languages(
+                crate::LanguageError::NameLanguages {
+                    kind: "station",
+                    ..
+                }
+            ))
+        ));
     }
 
     #[test]

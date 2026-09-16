@@ -1231,6 +1231,7 @@ mod tests {
         serde_yaml::from_str(
             r##"
 background: { transparent: true }
+languages: { set: [en], primary: en }
 labels: { hidden: false }
 lines: { width: 8.0 }
 stations:
@@ -1260,7 +1261,7 @@ stations:
                 .iter()
                 .map(|&(id, paths)| TopologyLine {
                     id: id.into(),
-                    names: Default::default(),
+                    names: [("en".into(), vec!["Test".into()])].into(),
                     color: "#000".into(),
                     paths: paths
                         .iter()
@@ -1604,7 +1605,7 @@ stations:
                     let angle = index as f64 * std::f64::consts::TAU / size as f64;
                     TopologyStation {
                         id: format!("S{index}"),
-                        names: Default::default(),
+                        names: [("en".into(), vec!["Test".into()])].into(),
                         position: TopologyPosition {
                             x: angle.cos(),
                             y: angle.sin(),
@@ -1616,7 +1617,7 @@ stations:
                 options: options(),
                 lines: vec![TopologyLine {
                     id: "ring".into(),
-                    names: Default::default(),
+                    names: [("en".into(), vec!["Test".into()])].into(),
                     color: "#000".into(),
                     paths: vec![TopologyPath {
                         stations: stations.iter().map(|station| station.id.clone()).collect(),

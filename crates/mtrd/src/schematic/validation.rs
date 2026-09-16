@@ -30,6 +30,7 @@ pub fn validate_schematic(schematic: &SchematicManifest) -> Result<(), Schematic
 pub(super) fn prepare_schematic(
     schematic: &SchematicManifest,
 ) -> Result<PreparedSchematic<'_>, SchematicRenderError> {
+    schematic.options.languages.validate()?;
     let stations = station_index(schematic)?;
     let corners = corner_index(schematic)?;
     let mut line_ids = HashSet::with_capacity(schematic.lines.len());
@@ -48,7 +49,10 @@ pub(super) fn prepare_schematic(
                 line: line.id.clone(),
             });
         }
-        validate_names("line", &line.id, &line.names)?;
+        schematic
+            .options
+            .languages
+            .validate_names("line", &line.id, &line.names)?;
 
         let mut paths = Vec::with_capacity(line.paths.len());
         for (path_index, path) in line.paths.iter().enumerate() {
@@ -269,7 +273,10 @@ fn station_index(
                 station: station.id.clone(),
             });
         }
-        validate_names("station", &station.id, &station.names)?;
+        schematic
+            .options
+            .languages
+            .validate_names("station", &station.id, &station.names)?;
     }
     Ok(stations)
 }
@@ -289,29 +296,6 @@ fn corner_index(
         }
     }
     Ok(corners)
-}
-
-fn validate_names(
-    kind: &'static str,
-    id: &str,
-    names: &crate::LocalizedNames,
-) -> Result<(), SchematicRenderError> {
-    for (locale, values) in names {
-        if locale.trim().is_empty() {
-            return Err(SchematicRenderError::EmptyLocale {
-                kind,
-                id: id.to_owned(),
-            });
-        }
-        if values.first().is_none_or(|value| value.trim().is_empty()) {
-            return Err(SchematicRenderError::EmptyCanonicalName {
-                kind,
-                id: id.to_owned(),
-                locale: locale.clone(),
-            });
-        }
-    }
-    Ok(())
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]

@@ -189,6 +189,7 @@ mod tests {
         serde_yaml::from_str(
             r##"
 background: { transparent: true }
+languages: { set: [en], primary: en }
 labels: { hidden: false }
 lines: { width: 8.0 }
 stations:
@@ -210,7 +211,7 @@ stations:
                 .iter()
                 .map(|&(id, x, y)| TopologyStation {
                     id: id.into(),
-                    names: Default::default(),
+                    names: [("en".into(), vec!["Test".into()])].into(),
                     position: TopologyPosition { x, y },
                 })
                 .collect(),
@@ -218,7 +219,7 @@ stations:
                 .iter()
                 .map(|(id, stations)| TopologyLine {
                     id: (*id).into(),
-                    names: Default::default(),
+                    names: [("en".into(), vec!["Test".into()])].into(),
                     color: "#f00".into(),
                     paths: vec![TopologyPath {
                         stations: stations.iter().map(|station| (*station).into()).collect(),

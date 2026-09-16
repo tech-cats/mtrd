@@ -3,6 +3,8 @@ use std::fmt;
 
 use thiserror::Error;
 
+use crate::LanguageError;
+
 use super::{MetroTopology, TopologyPosition, TopologyStation, layout::Bounds};
 
 /// A group of stations occupying one position in a topology manifest.
@@ -41,6 +43,9 @@ impl fmt::Display for DuplicateStationPositionGroups {
 /// An error encountered while rendering a metro topology.
 #[derive(Debug, Error, PartialEq)]
 pub enum TopologyRenderError {
+    #[error(transparent)]
+    Languages(#[from] LanguageError),
+
     #[error("station id must not be empty")]
     EmptyStationId,
 
@@ -109,6 +114,7 @@ pub fn validate_topology(topology: &MetroTopology) -> Result<(), TopologyRenderE
 pub(super) fn validate_topology_structure(
     topology: &MetroTopology,
 ) -> Result<(), TopologyRenderError> {
+    topology.options.languages.validate()?;
     let stations = station_index(topology)?;
     let mut line_ids = HashSet::with_capacity(topology.lines.len());
 
@@ -121,6 +127,10 @@ pub(super) fn validate_topology_structure(
                 line: line.id.clone(),
             });
         }
+        topology
+            .options
+            .languages
+            .validate_names("line", &line.id, &line.names)?;
 
         for (path_index, path) in line.paths.iter().enumerate() {
             let minimum = if path.closed { 3 } else { 2 };
@@ -185,6 +195,10 @@ pub(super) fn station_index(
                 station: station.id.clone(),
             });
         }
+        topology
+            .options
+            .languages
+            .validate_names("station", &station.id, &station.names)?;
         let group = positions
             .entry(position_key(station.position))
             .or_insert_with(|| IndexedPositionGroup {
@@ -248,6 +262,7 @@ mod tests {
         serde_yaml::from_str(
             r##"
 background: { transparent: true }
+languages: { set: [en], primary: en }
 labels: { hidden: false }
 lines: { width: 8.0 }
 stations:
@@ -279,7 +294,7 @@ stations:
             ],
             lines: vec![TopologyLine {
                 id: "red\"line".into(),
-                names: Default::default(),
+                names: [("en".into(), vec!["Test".into()])].into(),
                 color: "#f00".into(),
                 paths: vec![TopologyPath {
                     stations: vec!["south&west".into(), "north".into()],
@@ -349,6 +364,32 @@ stations:
                 station: "missing".into()
             })
         );
+    }
+
+    #[test]
+    fn rejects_topology_name_languages_outside_global_set() {
+        let mut topology = topology();
+        topology.stations[0]
+            .names
+            .insert("fr-ch".into(), vec!["Sud".into()]);
+        assert!(matches!(
+            validate_topology(&topology),
+            Err(TopologyRenderError::Languages(
+                LanguageError::NameLanguages {
+                    kind: "station",
+                    ..
+                }
+            ))
+        ));
+
+        topology.stations[0].names.remove("fr-ch");
+        topology.lines[0].names.remove("en");
+        assert!(matches!(
+            validate_topology(&topology),
+            Err(TopologyRenderError::Languages(
+                LanguageError::NameLanguages { kind: "line", .. }
+            ))
+        ));
     }
 
     #[test]

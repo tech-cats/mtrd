@@ -24,6 +24,7 @@ Save this small, complete example as `my-map.yaml`:
 
 ```yaml
 options:
+  languages: { set: [en], primary: en }
   lines: { width: 6.0 }
   stations:
     common:
@@ -52,8 +53,9 @@ lines:
 ```
 
 Station and line IDs must be unique. A path lists station IDs in travel order,
-and `names.en[0]` is the displayed English label. Positions are `[x, y]`, with
-positive `x` pointing right and positive `y` pointing down by default.
+and `names.en[0]` is the displayed label because `en` is the primary language.
+Positions are `[x, y]`, with positive `x` pointing right and positive `y`
+pointing down by default.
 
 ### 3. Check and render it
 
@@ -238,7 +240,24 @@ styling; other stations receive common styling. Common-station fill and stroke
 colours support the `unified` and `follow-line` policies. Station stroke
 alignment is `inside`, `center`, or `outside`, with `centre` accepted on input.
 Station-name labels are displayed when `options.labels.hidden` is `false` and
-omitted when it is `true`.
+omitted when it is `true`. The primary language's first name is the main label.
+When `options.languages.secondary` is set, its first name appears on a second
+line. Both labels are XML-escaped in SVG output.
+
+Both topology and schematic manifests require `options.languages`. Its `set`
+lists every language used by every station and line `names` map; each map must
+have exactly those keys and a non-empty first name for each language. `primary`
+must be in `set`. Optional `secondary` must also be in `set` and differ from
+`primary`. For example:
+
+```yaml
+languages:
+  set: [de-ch, fr-ch, it-ch, rm-ch, en]
+  primary: de-ch
+  secondary: en
+```
+
+The set is stored in sorted order in canonical YAML and JSON.
 
 Configuration keys and enum values use kebab-case in canonical YAML and JSON.
 For example, schematic routes use `station-id` and `single-line`, while Rust
@@ -261,8 +280,9 @@ supports strict YAML and equivalent JSON serialisation through `from_yaml`,
 lengths are finite positive scalars, and unknown fields are rejected.
 
 Global `options` set either an opaque background `color` or
-`transparent: true`, group line styling under `lines`, and station styling
-under `stations.common` and `stations.interchange`. An explicit
+`transparent: true`, declare required `languages`, group line styling under
+`lines`, and station styling under `stations.common` and
+`stations.interchange`. An explicit
 `transparent: false` may accompany the background colour.
 Common-station colours support
 the tagged `unified` and `follow-line` policies. Station stroke alignment is

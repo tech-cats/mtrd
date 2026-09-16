@@ -1,5 +1,7 @@
 use thiserror::Error;
 
+use crate::LanguageError;
+
 /// An invariant violation that prevents a schematic manifest from rendering.
 #[derive(Debug, Error, PartialEq)]
 pub enum SchematicRenderError {
@@ -15,14 +17,8 @@ pub enum SchematicRenderError {
     EmptyLineId,
     #[error("line id '{line}' is defined more than once")]
     DuplicateLine { line: String },
-    #[error("{kind} '{id}' has an empty locale key")]
-    EmptyLocale { kind: &'static str, id: String },
-    #[error("{kind} '{id}' locale '{locale}' has no non-empty canonical name")]
-    EmptyCanonicalName {
-        kind: &'static str,
-        id: String,
-        locale: String,
-    },
+    #[error(transparent)]
+    Languages(#[from] LanguageError),
     #[error("line '{line}' refers to unknown station '{station}'")]
     UnknownStation { line: String, station: String },
     #[error("line '{line}' refers to unknown corner '{corner}'")]
