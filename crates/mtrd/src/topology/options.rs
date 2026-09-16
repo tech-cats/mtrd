@@ -1,5 +1,7 @@
 use serde::{Deserialize, Deserializer, Serialize, Serializer, ser::SerializeMap};
 
+use crate::Languages;
+
 /// Global visual options used by a topology map.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case", deny_unknown_fields)]
@@ -10,6 +12,7 @@ pub struct TopologyOptions {
     pub coordinates: TopologyCoordinateOptions,
     #[serde(default)]
     pub labels: TopologyLabelOptions,
+    pub languages: Languages,
     pub lines: TopologyLineOptions,
     #[serde(default)]
     pub scale: TopologyScale,

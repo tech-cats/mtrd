@@ -438,6 +438,7 @@ mod tests {
 
     const YAML: &str = r#"
 options:
+  languages: { set: [en], primary: en }
   background:
     color: '#ffffff'
   labels:
@@ -480,6 +481,7 @@ lines:
 
     const SCHEMATIC_YAML: &str = r##"
 options:
+  languages: { set: [en], primary: en }
   background:
     color: "#ffffff"
   lines:

@@ -6,6 +6,10 @@ options:
     axes: r-d
   labels:
     hidden: true
+  languages:
+    set:
+    - en
+    primary: en
   lines:
     width: 5.0
   scale: 1.0

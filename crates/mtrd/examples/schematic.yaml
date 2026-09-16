@@ -1,6 +1,10 @@
 options:
   background:
     color: '#FFFFFF'
+  languages:
+    set:
+    - en
+    primary: en
   lines:
     width: 16.0
   stations:

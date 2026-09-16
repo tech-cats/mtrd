@@ -315,6 +315,7 @@ mod tests {
 
     const YAML: &str = r##"
 options:
+  languages: { set: [en], primary: en }
   background: { transparent: true }
   lines: { width: 8.0 }
   stations:

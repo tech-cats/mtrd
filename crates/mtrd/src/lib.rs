@@ -6,12 +6,14 @@
 //! YAML is the primary, human-editable manifest format. JSON uses the same
 //! schemas and is available for interchange with web applications.
 
+mod languages;
 mod manifest_format;
 mod schematic;
 mod topology;
 
 use std::collections::BTreeMap;
 
+pub use languages::{LanguageError, Languages};
 pub use schematic::{
     OctilinearAxis, SchematicBackgroundOptions, SchematicCommonStationFill,
     SchematicCommonStationOptions, SchematicCommonStationStroke, SchematicCorner,
@@ -37,8 +39,8 @@ pub use topology::{
     contract_topology, generate_schematic, render_topology_svg, validate_topology,
 };
 
-/// Names indexed by a locale such as `en` or `zh-CN`.
+/// Names indexed by a language such as `en` or `zh-CN`.
 ///
-/// The first entry for a locale is its canonical name. Every following entry
-/// is an alias in that locale.
+/// Each manifest's `options.languages.set` determines the required keys. The
+/// first entry for a language is its canonical name; following entries are aliases.
 pub type LocalizedNames = BTreeMap<String, Vec<String>>;

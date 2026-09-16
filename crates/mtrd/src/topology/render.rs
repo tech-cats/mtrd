@@ -171,14 +171,29 @@ pub fn render_topology_svg(topology: &MetroTopology) -> Result<String, TopologyR
             if !label_x.is_finite() {
                 return Err(TopologyRenderError::CoordinateRange);
             }
-            write!(
-                svg,
-                "<text x=\"{}\" y=\"{}\" dominant-baseline=\"middle\">{}</text>",
-                number(label_x),
-                number(y),
-                xml_escape(station_label(station)),
-            )
-            .unwrap();
+            let primary = station_label(station, &topology.options.languages.primary);
+            if let Some(secondary) = &topology.options.languages.secondary {
+                write!(
+                    svg,
+                    "<text x=\"{}\" y=\"{}\" dominant-baseline=\"middle\"><tspan x=\"{}\" dy=\"-0.6em\">{}</tspan><tspan x=\"{}\" dy=\"1.2em\">{}</tspan></text>",
+                    number(label_x),
+                    number(y),
+                    number(label_x),
+                    xml_escape(primary),
+                    number(label_x),
+                    xml_escape(station_label(station, secondary)),
+                )
+                .unwrap();
+            } else {
+                write!(
+                    svg,
+                    "<text x=\"{}\" y=\"{}\" dominant-baseline=\"middle\">{}</text>",
+                    number(label_x),
+                    number(y),
+                    xml_escape(primary),
+                )
+                .unwrap();
+            }
         }
         writeln!(svg, "</g>").unwrap();
     }
@@ -335,12 +350,11 @@ fn project(bounds: Bounds, station: &TopologyStation) -> Result<(f64, f64), Topo
         .ok_or(TopologyRenderError::CoordinateRange)
 }
 
-fn station_label(station: &TopologyStation) -> &str {
+fn station_label<'a>(station: &'a TopologyStation, primary: &str) -> &'a str {
     station
         .names
-        .get("en")
+        .get(primary)
         .and_then(|names| names.first())
-        .or_else(|| station.names.values().find_map(|names| names.first()))
         .map(String::as_str)
         .unwrap_or(&station.id)
 }
@@ -382,6 +396,11 @@ mod tests {
             },
             coordinates: Default::default(),
             labels: TopologyLabelOptions { hidden: false },
+            languages: crate::Languages {
+                set: ["en".to_owned()].into(),
+                primary: "en".to_owned(),
+                secondary: None,
+            },
             lines: TopologyLineOptions {
                 width: TopologyLength::new(8.0).unwrap(),
             },
@@ -432,7 +451,7 @@ mod tests {
             ],
             lines: vec![TopologyLine {
                 id: "red\"line".into(),
-                names: Default::default(),
+                names: [("en".into(), vec!["Test".into()])].into(),
                 color: "#f00".into(),
                 paths: vec![TopologyPath {
                     stations: vec!["south&west".into(), "north".into()],
@@ -446,19 +465,19 @@ mod tests {
         let stations = vec![
             TopologyStation {
                 id: "a".into(),
-                names: Default::default(),
+                names: [("en".into(), vec!["Test".into()])].into(),
                 position: TopologyPosition { x: 0.0, y: 0.0 },
             },
             TopologyStation {
                 id: "b".into(),
-                names: Default::default(),
+                names: [("en".into(), vec!["Test".into()])].into(),
                 position: TopologyPosition { x: 160.0, y: 0.0 },
             },
         ];
         let lines = (0..line_count)
             .map(|index| TopologyLine {
                 id: format!("line-{index}"),
-                names: Default::default(),
+                names: [("en".into(), vec!["Test".into()])].into(),
                 color: format!("#{index}{index}{index}"),
                 paths: vec![TopologyPath {
                     stations: if index == 1 {
@@ -588,6 +607,33 @@ mod tests {
     }
 
     #[test]
+    fn renders_primary_and_optional_secondary_station_labels() {
+        let mut topology = topology();
+        topology.options.languages.set.insert("de-ch".into());
+        topology.options.languages.primary = "de-ch".into();
+        topology.options.languages.secondary = Some("en".into());
+        topology.stations[0]
+            .names
+            .insert("de-ch".into(), vec!["Süd & West".into()]);
+        topology.stations[1]
+            .names
+            .insert("de-ch".into(), vec!["Nord".into()]);
+        topology.lines[0]
+            .names
+            .insert("de-ch".into(), vec!["Rote Linie".into()]);
+
+        let svg = render_topology_svg(&topology).unwrap();
+        assert!(svg.contains("<tspan x=\""));
+        assert!(svg.contains(">Süd &amp; West</tspan>"));
+        assert!(svg.contains(">South &lt;West&gt;</tspan>"));
+
+        topology.options.languages.secondary = None;
+        let svg = render_topology_svg(&topology).unwrap();
+        assert!(svg.contains(">Süd &amp; West</text>"));
+        assert!(!svg.contains("<tspan"));
+    }
+
+    #[test]
     fn renders_two_shared_lines_in_separate_lanes() {
         let svg = render_topology_svg(&horizontal_shared_topology(2)).unwrap();
 
@@ -611,7 +657,7 @@ mod tests {
         let mut topology = horizontal_shared_topology(1);
         topology.stations.push(TopologyStation {
             id: "c".into(),
-            names: Default::default(),
+            names: [("en".into(), vec!["Test".into()])].into(),
             position: TopologyPosition { x: 1.0, y: 1.0 },
         });
         topology.lines[0].paths = vec![

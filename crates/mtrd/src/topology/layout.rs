@@ -190,6 +190,11 @@ mod tests {
                 background: TopologyBackgroundOptions::Transparent,
                 coordinates,
                 labels: TopologyLabelOptions { hidden: true },
+                languages: crate::Languages {
+                    set: ["en".to_owned()].into(),
+                    primary: "en".to_owned(),
+                    secondary: None,
+                },
                 lines: TopologyLineOptions {
                     width: TopologyLength::new(8.0).unwrap(),
                 },
@@ -224,7 +229,7 @@ mod tests {
                 .enumerate()
                 .map(|(index, &(x, y))| TopologyStation {
                     id: index.to_string(),
-                    names: Default::default(),
+                    names: [("en".into(), vec!["Test".into()])].into(),
                     position: TopologyPosition { x, y },
                 })
                 .collect(),

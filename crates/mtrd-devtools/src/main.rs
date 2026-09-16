@@ -217,6 +217,7 @@ mod tests {
 
     const TOPOLOGY_YAML: &str = r##"
 options:
+  languages: { set: [en], primary: en }
   background: { transparent: true }
   labels: { hidden: false }
   lines: { width: 8.0 }
@@ -229,17 +230,17 @@ options:
       stroke: { width: 2.0, alignment: outside, color: "#000000" }
 stations:
   - id: A
-    names: {}
+    names: { en: [Test] }
     position: [0, 0]
   - id: B
-    names: {}
+    names: { en: [Test] }
     position: [1, 1]
   - id: C
-    names: {}
+    names: { en: [Test] }
     position: [2, 0]
 lines:
   - id: red
-    names: {}
+    names: { en: [Test] }
     color: "#f00"
     paths:
       - stations: [A, B, C]

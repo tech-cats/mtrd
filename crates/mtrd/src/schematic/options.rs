@@ -1,5 +1,7 @@
 use serde::{Deserialize, Deserializer, Serialize, Serializer, ser::SerializeMap};
 
+use crate::Languages;
+
 use super::SchematicLength;
 
 /// Global visual options used by a schematic map.
@@ -7,6 +9,7 @@ use super::SchematicLength;
 #[serde(rename_all = "kebab-case", deny_unknown_fields)]
 pub struct SchematicOptions {
     pub background: SchematicBackgroundOptions,
+    pub languages: Languages,
     pub lines: SchematicLineOptions,
     pub stations: SchematicStationOptions,
 }

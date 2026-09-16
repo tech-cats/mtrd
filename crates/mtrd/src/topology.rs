@@ -158,6 +158,7 @@ mod tests {
 
     const TOPOLOGY_YAML: &str = r#"
 options:
+  languages: { set: [en, zh-CN], primary: zh-CN, secondary: en }
   background:
     color: '#ffffff'
   labels:
