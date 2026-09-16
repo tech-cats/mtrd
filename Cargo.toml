@@ -4,7 +4,7 @@ members = ["crates/*"]
 default-members = ["crates/mtrd"]
 
 [workspace.package]
-version = "0.0.0"
+version = "0.3.3"
 edition = "2024"
 license = "Apache-2.0"
 repository = "https://github.com/tech-cats/metro-draw"
