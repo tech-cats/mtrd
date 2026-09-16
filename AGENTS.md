@@ -26,6 +26,8 @@ Run `cargo fmt --all` before the check-only commands when code has changed.
 
 Use standard rustfmt output and four-space indentation. Follow Rust naming conventions: `snake_case` for modules, functions, and tests; `PascalCase` for types and error variants; `SCREAMING_SNAKE_CASE` for constants. Order Rust declarations and imports as: `mod` declarations, `use std::…`, dependency imports, `use crate::…`, `use super::…`, then `use self::…` (omitting `self::` when idiomatic). Keep each import group separated by a blank line. Prefer typed `thiserror` errors and preserve their sources. Keep schema, validation, and rendering behavior in the library; CLI code should handle arguments, files, and user-facing output only.
 
+Use North American English for code identifiers and for the canonical spelling of public interface tokens such as subcommands, flags, configuration keys, and serialised field or variant names. Prefer British English in documentation and other prose. Where practical, accept British spellings as aliases for public interface tokens, while emitting and documenting the North American spelling as canonical.
+
 YAML is the primary human-edited format and JSON is equivalent interchange. Keep Serde schemas strict. Positions must remain two-element `[x, y]` arrays, and `names[locale][0]` is the canonical label.
 
 ## Testing Guidelines

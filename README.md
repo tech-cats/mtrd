@@ -131,6 +131,7 @@ successful check means the manifest can be processed by the topology renderer.
 It validates that:
 
 - station and line IDs are non-empty and unique;
+- distinct stations do not have identical positions;
 - every station referenced by a line path exists;
 - both coordinates of every station are finite and within the renderer's
   supported numeric range;
@@ -209,8 +210,8 @@ options:
 ```
 
 Geographic axes may be `e-n`, `e-s`, `w-n`, `w-s`, `n-e`, `n-w`, `s-e`, or
-`s-w`; `e-n` is the default. For example, Los Angeles is approximately
-`[-118.0, 34.0]` with `e-n` and `[34.0, 118.0]` with `n-w`.
+`s-w`; `n-e` is the default. For example, Los Angeles is approximately
+`[34.0, -118.0]` with `n-e` and `[34.0, 118.0]` with `n-w`.
 
 The renderer finds the direct numeric longitude and latitude bounds, uses their
 average as the centre, and applies a local equirectangular projection with the

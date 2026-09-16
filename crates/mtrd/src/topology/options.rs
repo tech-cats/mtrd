@@ -102,22 +102,22 @@ impl TopologyCartesianAxes {
 #[serde(rename_all = "kebab-case")]
 pub enum TopologyGeographicAxes {
     #[default]
-    #[serde(rename = "e-n")]
-    EastNorth,
-    #[serde(rename = "e-s")]
-    EastSouth,
-    #[serde(rename = "w-n")]
-    WestNorth,
-    #[serde(rename = "w-s")]
-    WestSouth,
     #[serde(rename = "n-e")]
     NorthEast,
-    #[serde(rename = "n-w")]
-    NorthWest,
+    #[serde(rename = "e-n")]
+    EastNorth,
     #[serde(rename = "s-e")]
     SouthEast,
+    #[serde(rename = "e-s")]
+    EastSouth,
+    #[serde(rename = "n-w")]
+    NorthWest,
+    #[serde(rename = "w-n")]
+    WestNorth,
     #[serde(rename = "s-w")]
     SouthWest,
+    #[serde(rename = "w-s")]
+    WestSouth,
 }
 
 impl TopologyGeographicAxes {

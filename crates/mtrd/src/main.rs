@@ -28,6 +28,7 @@ enum Command {
     },
 
     /// Convert a metro topology between YAML and JSON.
+    #[command(alias = "conv")]
     Convert {
         /// Source .yaml, .yml, or .json file.
         input: PathBuf,
@@ -65,6 +66,7 @@ enum Command {
     },
 
     /// Render a metro manifest as SVG.
+    #[command(alias = "r")]
     Render {
         /// Generate a topology graph.
         #[arg(
@@ -580,6 +582,14 @@ lines:
             schematic.to_yaml().unwrap(),
             example(ExampleKind::Schematic)
         );
+    }
+
+    #[test]
+    fn rejects_unavailable_generate_command_and_aliases() {
+        for command in ["generate", "g", "gen"] {
+            let error = Cli::try_parse_from(["mtrd", command, "topology.yaml"]).unwrap_err();
+            assert_eq!(error.kind(), clap::error::ErrorKind::InvalidSubcommand);
+        }
     }
 
     #[test]

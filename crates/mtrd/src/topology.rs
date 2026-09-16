@@ -1,12 +1,19 @@
+pub(crate) mod contract;
 mod layout;
 mod options;
 mod render;
 mod validation;
 
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
+use thiserror::Error;
 
-use crate::{LocalizedNames, manifest_format::canonicalize_yaml};
+use crate::{LocalizedNames, SchematicManifest, manifest_format::canonicalize_yaml};
 
+pub use contract::{
+    ContractedEdge, ContractedNode, ContractedPath, ContractedTopology, EdgeEndpoint, IncidentEdge,
+    LocatedOccurrence, ReducedTraversal, RetentionReason, SourceSegmentSpan, StationNeighborOrder,
+    TopologyContractError, UnsupportedIntersectionKind, VirtualContinuation, contract_topology,
+};
 pub use options::{
     TopologyBackgroundOptions, TopologyCartesianAxes, TopologyCommonStationFill,
     TopologyCommonStationOptions, TopologyCommonStationStroke, TopologyCoordinateOptions,
@@ -16,7 +23,37 @@ pub use options::{
     TopologyStrokeAlignment, TopologyValueError,
 };
 pub use render::render_topology_svg;
-pub use validation::{TopologyRenderError, validate_topology};
+pub use validation::{
+    DuplicateStationPositionGroup, DuplicateStationPositionGroups, TopologyRenderError,
+    validate_topology,
+};
+
+#[derive(Debug, Error, PartialEq)]
+pub enum SchematicGenerationError {
+    #[error(transparent)]
+    Initialize(TopologyRenderError),
+
+    #[error(transparent)]
+    Contract(#[from] TopologyContractError),
+
+    #[error("schematic generation is not implemented yet")]
+    StageUnavailable,
+}
+
+/// Canonicalise and contract a topology before the remaining generation stages.
+///
+/// The layout stages are deliberately not available yet, so a successfully
+/// contracted topology currently returns [`SchematicGenerationError::StageUnavailable`].
+pub fn generate_schematic(
+    topology: &MetroTopology,
+) -> Result<SchematicManifest, SchematicGenerationError> {
+    let topology = topology
+        .clone()
+        .canonicalize_coordinates()
+        .map_err(SchematicGenerationError::Initialize)?;
+    let _contracted = contract::contract_topology(topology)?;
+    Err(SchematicGenerationError::StageUnavailable)
+}
 
 /// An entire metro topology manifest.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -84,6 +121,16 @@ pub struct TopologyPath {
 }
 
 impl MetroTopology {
+    /// Convert configured station coordinates to canonical rightward/downward
+    /// Cartesian coordinates while preserving all non-coordinate rendering
+    /// options.
+    pub fn canonicalize_coordinates(self) -> Result<Self, TopologyRenderError> {
+        validation::validate_topology_structure(&self)?;
+        let topology = layout::canonicalize_coordinates(self)?;
+        validation::validate_topology_structure(&topology)?;
+        Ok(topology)
+    }
+
     /// Deserialize a metro topology from a YAML manifest.
     pub fn from_yaml(yaml: &str) -> Result<Self, serde_yaml::Error> {
         serde_yaml::from_str(yaml)
@@ -434,13 +481,13 @@ lines:
         assert_eq!(
             geographic.options.coordinates,
             TopologyCoordinateOptions::Geographic {
-                axes: TopologyGeographicAxes::EastNorth
+                axes: TopologyGeographicAxes::NorthEast
             }
         );
         let canonical: serde_yaml::Value =
             serde_yaml::from_str(&geographic.to_yaml().unwrap()).unwrap();
         assert_eq!(canonical["options"]["coordinates"]["type"], "geographic");
-        assert_eq!(canonical["options"]["coordinates"]["axes"], "e-n");
+        assert_eq!(canonical["options"]["coordinates"]["axes"], "n-e");
     }
 
     #[test]
@@ -465,6 +512,32 @@ lines:
                 assert!(MetroTopology::from_yaml(&yaml).is_ok());
             }
         }
+    }
+
+    #[test]
+    fn canonicalizes_configured_coordinates_without_changing_rendering_options() {
+        let mut topology = MetroTopology::from_yaml(TOPOLOGY_YAML).unwrap();
+        let original_options = topology.options.clone();
+        topology.options.coordinates = TopologyCoordinateOptions::Cartesian {
+            axes: TopologyCartesianAxes::DownLeft,
+        };
+        topology.stations[0].position = TopologyPosition { x: 20.0, y: -10.0 };
+
+        let canonical = topology.canonicalize_coordinates().unwrap();
+
+        assert_eq!(
+            canonical.stations[0].position,
+            TopologyPosition { x: 10.0, y: 20.0 }
+        );
+        assert_eq!(
+            canonical.options.coordinates,
+            TopologyCoordinateOptions::default()
+        );
+        assert_eq!(canonical.options.background, original_options.background);
+        assert_eq!(canonical.options.labels, original_options.labels);
+        assert_eq!(canonical.options.lines, original_options.lines);
+        assert_eq!(canonical.options.scale, original_options.scale);
+        assert_eq!(canonical.options.stations, original_options.stations);
     }
 
     #[test]
