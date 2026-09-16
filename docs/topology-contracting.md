@@ -13,31 +13,11 @@ that representation has no independent compatibility contract.
 
 ## Current workflow
 
-The public CLI entry point is:
-
-```text
-mtrd generate <topology.yaml> [schematic.yaml]
-```
-
-`g` and `gen` are aliases for `generate`. The input may be YAML, YML, or JSON.
-An explicit output path and `-T`/`--timestamp` naming are accepted.
-
 Coordinate initialisation and contracting are implemented, but
-topology-to-schematic layout is not. A valid input is therefore fully validated,
-canonicalised, and contracted before the command exits
-unsuccessfully with:
+topology-to-schematic layout is not. The public CLI therefore has no schematic
+generation command.
 
-```text
-schematic generation is not implemented yet
-```
-
-The command does not create the requested schematic or any intermediate files.
-Its configured default destination is `<input stem>.schematic.yaml`, while
-timestamp naming selects `mtrd-<microsecond timestamp>.schematic.yaml` in the
-current directory. Neither path is written while generation remains
-stage-unavailable.
-
-The equivalent library entry point is `generate_schematic(&MetroTopology)`.
+The library entry point is `generate_schematic(&MetroTopology)`.
 It currently returns `SchematicGenerationError::StageUnavailable` after
 successful contraction, or a typed contraction error if the topology
 cannot be prepared.

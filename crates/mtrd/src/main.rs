@@ -7,9 +7,8 @@ use clap::{ArgAction, Parser, Subcommand, ValueEnum};
 use thiserror::Error;
 
 use mtrd::{
-    MetroTopology, SchematicGenerationError, SchematicManifest, SchematicRenderError,
-    TopologyRenderError, generate_schematic, render_schematic_svg, render_topology_svg,
-    validate_schematic, validate_topology,
+    MetroTopology, SchematicManifest, SchematicRenderError, TopologyRenderError,
+    render_schematic_svg, render_topology_svg, validate_schematic, validate_topology,
 };
 
 #[derive(Debug, Parser)]
@@ -97,21 +96,6 @@ enum Command {
 
         /// Metro manifest file to render.
         input: PathBuf,
-    },
-
-    /// Generate a schematic manifest from a topology manifest.
-    #[command(alias = "g", alias = "gen")]
-    Generate {
-        /// Topology .yaml, .yml, or .json input file.
-        input: PathBuf,
-
-        /// Schematic destination (defaults to <input stem>.schematic.yaml).
-        #[arg(conflicts_with = "timestamp")]
-        output: Option<PathBuf>,
-
-        /// Name the output mtrd-<microsecond timestamp>.schematic.yaml.
-        #[arg(short = 'T', long, conflicts_with = "output")]
-        timestamp: bool,
     },
 }
 
@@ -207,9 +191,6 @@ enum CliError {
     #[error("invalid schematic manifest: {0}")]
     InvalidSchematic(SchematicRenderError),
 
-    #[error(transparent)]
-    Generate(#[from] SchematicGenerationError),
-
     #[error("failed to determine the current directory: {0}")]
     CurrentDirectory(#[source] std::io::Error),
 
@@ -268,11 +249,6 @@ fn run(cli: Cli) -> Result<String, CliError> {
             };
             render(&input, output.as_deref(), timestamp, kind)
         }
-        Command::Generate {
-            input,
-            output,
-            timestamp,
-        } => generate(&input, output.as_deref(), timestamp),
     }
 }
 
@@ -281,42 +257,6 @@ fn example(kind: ExampleKind) -> &'static str {
         ExampleKind::Topology => TOPOLOGY_EXAMPLE,
         ExampleKind::Schematic => SCHEMATIC_EXAMPLE,
     }
-}
-
-fn generate(input: &Path, output: Option<&Path>, timestamp: bool) -> Result<String, CliError> {
-    let format = Format::from_path(input)?;
-    let topology = read_topology(input, format)?;
-    let schematic = generate_schematic(&topology)?;
-    let output = generation_output_path(input, output, timestamp)?;
-    let yaml = schematic.to_yaml().map_err(CliError::SerializeYaml)?;
-    fs::write(&output, yaml).map_err(|source| CliError::Write {
-        path: output.clone(),
-        source,
-    })?;
-    Ok(output.display().to_string())
-}
-
-fn generation_output_path(
-    input: &Path,
-    output: Option<&Path>,
-    timestamp: bool,
-) -> Result<PathBuf, CliError> {
-    if let Some(output) = output {
-        return Ok(output.to_path_buf());
-    }
-    if timestamp {
-        let timestamp = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_micros();
-        return Ok(std::env::current_dir()
-            .map_err(CliError::CurrentDirectory)?
-            .join(format!("mtrd-{timestamp}.schematic.yaml")));
-    }
-    let mut output = input.to_path_buf();
-    let stem = input.file_stem().unwrap_or_default();
-    output.set_file_name(format!("{}.schematic.yaml", stem.to_string_lossy()));
-    Ok(output)
 }
 
 fn render(
@@ -645,53 +585,11 @@ lines:
     }
 
     #[test]
-    fn parses_generate_command_and_aliases() {
+    fn rejects_unavailable_generate_command_and_aliases() {
         for command in ["generate", "g", "gen"] {
-            let cli = Cli::try_parse_from(["mtrd", command, "topology.yaml"]).unwrap();
-            assert!(matches!(
-                cli.command,
-                Command::Generate { input, output: None, timestamp: false }
-                    if input == Path::new("topology.yaml")
-            ));
+            let error = Cli::try_parse_from(["mtrd", command, "topology.yaml"]).unwrap_err();
+            assert_eq!(error.kind(), clap::error::ErrorKind::InvalidSubcommand);
         }
-        assert!(
-            Cli::try_parse_from(["mtrd", "generate", "topology.yaml", "schematic.yaml", "-T"])
-                .is_err()
-        );
-    }
-
-    #[test]
-    fn generate_contracts_then_fails_without_creating_output() {
-        let input = temporary_path("yaml");
-        let output = temporary_path("schematic.yaml");
-        fs::write(&input, YAML).unwrap();
-
-        assert!(matches!(
-            generate(&input, Some(&output), false),
-            Err(CliError::Generate(
-                SchematicGenerationError::StageUnavailable
-            ))
-        ));
-        assert!(!output.exists());
-
-        fs::remove_file(input).unwrap();
-    }
-
-    #[test]
-    fn selects_generation_output_path() {
-        assert_eq!(
-            generation_output_path(Path::new("examples/simple.yaml"), None, false).unwrap(),
-            Path::new("examples/simple.schematic.yaml")
-        );
-        assert_eq!(
-            generation_output_path(
-                Path::new("examples/simple.yaml"),
-                Some(Path::new("chosen.yaml")),
-                false,
-            )
-            .unwrap(),
-            Path::new("chosen.yaml")
-        );
     }
 
     #[test]
