@@ -216,8 +216,8 @@ options:
 ```
 
 Geographic axes may be `e-n`, `e-s`, `w-n`, `w-s`, `n-e`, `n-w`, `s-e`, or
-`s-w`; `e-n` is the default. For example, Los Angeles is approximately
-`[-118.0, 34.0]` with `e-n` and `[34.0, 118.0]` with `n-w`.
+`s-w`; `n-e` is the default. For example, Los Angeles is approximately
+`[34.0, -118.0]` with `n-e` and `[34.0, 118.0]` with `n-w`.
 
 The renderer finds the direct numeric longitude and latitude bounds, uses their
 average as the centre, and applies a local equirectangular projection with the

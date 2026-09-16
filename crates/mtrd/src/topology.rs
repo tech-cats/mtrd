@@ -481,13 +481,13 @@ lines:
         assert_eq!(
             geographic.options.coordinates,
             TopologyCoordinateOptions::Geographic {
-                axes: TopologyGeographicAxes::EastNorth
+                axes: TopologyGeographicAxes::NorthEast
             }
         );
         let canonical: serde_yaml::Value =
             serde_yaml::from_str(&geographic.to_yaml().unwrap()).unwrap();
         assert_eq!(canonical["options"]["coordinates"]["type"], "geographic");
-        assert_eq!(canonical["options"]["coordinates"]["axes"], "e-n");
+        assert_eq!(canonical["options"]["coordinates"]["axes"], "n-e");
     }
 
     #[test]
