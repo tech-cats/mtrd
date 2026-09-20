@@ -1,4 +1,5 @@
 pub(crate) mod contract;
+mod density_reshape;
 mod layout;
 mod options;
 mod render;
@@ -51,7 +52,11 @@ pub fn generate_schematic(
         .clone()
         .canonicalize_coordinates()
         .map_err(SchematicGenerationError::Initialize)?;
-    let _contracted = contract::contract_topology(topology)?;
+    let density_warp = density_reshape::DensityWarp::identity(&topology);
+    let contracted = contract::contract_topology(topology)?;
+    let warped_targets =
+        density_reshape::WarpedLayoutTargets::from_contracted(&contracted, &density_warp);
+    debug_assert_eq!(warped_targets.len(), contracted.nodes.len());
     Err(SchematicGenerationError::StageUnavailable)
 }
 
