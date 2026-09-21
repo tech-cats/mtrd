@@ -204,11 +204,11 @@ limited to 250,000 triangles or one million raster pixels.
 
 `GenerationManifest` is the strict YAML model; omitted fields use defaults. A
 [sample generation manifest](crates/mtrd/examples/generation.yaml) is included.
-Use `mtrd check -t -m generation.yaml topology.yaml` to validate both files.
-The `-m`/`--manifest` path is supplied for this invocation; mtrd does not search
-for or retain a project-wide configuration file.
-The public CLI has no generation command yet. The private developer command
-`mtrd-devtools density -m generation.yaml topology.yaml` uses the manifest.
+`mtrd check` validates only topology and schematic manifests. Generation
+manifest validation belongs under a future `mtrd generate check` command; the
+public CLI has no `generate` entrypoint yet. For now, the private developer
+command `mtrd-devtools density -m generation.yaml topology.yaml` reads and
+validates the generation manifest for that invocation.
 
 `analyze_density(&MetroTopology, &GenerationManifest)` exposes the resolved
 parameters, mesh, sampled densities, triangle masses, and diagnostics. This

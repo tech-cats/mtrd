@@ -15,7 +15,9 @@ that representation has no independent compatibility contract.
 
 Coordinate initialisation and contracting are implemented, but
 topology-to-schematic layout is not. The public CLI therefore has no schematic
-generation command.
+generation command. Generation manifest checking will belong under
+`mtrd generate check` when generation commands become available; `mtrd check`
+continues to validate topology and schematic manifests only.
 
 The library entry point is `generate_schematic(&MetroTopology, &GenerationManifest)`.
 The config is a separate YAML manifest. It currently returns
