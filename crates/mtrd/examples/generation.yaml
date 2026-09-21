@@ -1,9 +1,2 @@
 density-reshape:
   estimator: vertex-kde
-  bandwidth: { factor: 1.0 }
-  mesh-cell-size: { factor: 1.0 }
-  raster-pixel-size: { factor: 1.0 }
-  padding: { factor: 1.0 }
-  station-weight: { factor: 1.0 }
-  segment-weight: { factor: 1.0 }
-  density-floor: { factor: 1.0 }

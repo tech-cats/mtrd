@@ -4,6 +4,18 @@ This private workspace package inspects intermediate stages of the `mtrd`
 generation pipeline. It is not published and is excluded from the workspace's
 default package set.
 
+Export the automatically derived generation settings for a topology as numeric
+scalars:
+
+```sh
+cargo run -p mtrd-devtools -- derive topology.yaml
+cargo run -p mtrd-devtools -- derive topology.yaml generation.yaml
+```
+
+The first command writes YAML to stdout. An output file with a `.yaml`, `.yml`,
+or `.json` extension receives the corresponding format. The values are resolved
+from the source topology, so the command requires an input path.
+
 Generate a contracted YAML or JSON manifest from a topology manifest:
 
 ```sh

@@ -1,6 +1,7 @@
 mod contracted;
 
 use std::fs;
+use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
@@ -19,6 +20,13 @@ struct Cli {
 
 #[derive(Debug, Subcommand)]
 enum Command {
+    /// Export default generation settings resolved from a topology.
+    Derive {
+        /// Source topology manifest in YAML or JSON.
+        input: PathBuf,
+        /// Destination YAML or JSON file (defaults to stdout as YAML).
+        output: Option<PathBuf>,
+    },
     /// Inspect the triangular density mesh of a topology.
     Density {
         /// Generation manifest in YAML (defaults to built-in settings).
@@ -95,6 +103,15 @@ enum CliError {
         source: std::io::Error,
     },
 
+    #[error("failed to write to stdout: {0}")]
+    Stdout(#[source] std::io::Error),
+
+    #[error("failed to serialise generation manifest as YAML: {0}")]
+    GenerationYaml(serde_yaml::Error),
+
+    #[error("failed to serialise generation manifest as JSON: {0}")]
+    GenerationJson(serde_json::Error),
+
     #[error("invalid topology YAML in '{path}': {source}")]
     TopologyYaml {
         path: PathBuf,
@@ -146,6 +163,7 @@ fn main() -> ExitCode {
 
 fn run(cli: Cli) -> Result<Vec<PathBuf>, CliError> {
     match cli.command {
+        Command::Derive { input, output } => derive(&input, output.as_deref()),
         Command::Density {
             input,
             output,
@@ -164,6 +182,59 @@ fn run(cli: Cli) -> Result<Vec<PathBuf>, CliError> {
         } => contract(&input, output.as_deref(), render),
         Command::Render { input, output } => {
             render(&input, output.as_deref()).map(|output| vec![output])
+        }
+    }
+}
+
+fn derive(input: &Path, output: Option<&Path>) -> Result<Vec<PathBuf>, CliError> {
+    let input_format = Format::from_path(input)?;
+    let source = read(input)?;
+    let topology = match input_format {
+        Format::Yaml => {
+            MetroTopology::from_yaml(&source).map_err(|source| CliError::TopologyYaml {
+                path: input.to_path_buf(),
+                source,
+            })?
+        }
+        Format::Json => {
+            MetroTopology::from_json(&source).map_err(|source| CliError::TopologyJson {
+                path: input.to_path_buf(),
+                source,
+            })?
+        }
+    };
+    let resolved = analyze_density(&topology, &GenerationManifest::default())?.options;
+    let mut manifest = GenerationManifest::default();
+    let density = &mut manifest.density_reshape;
+    density.estimator = resolved.estimator;
+    density.bandwidth = Some(resolved.bandwidth);
+    density.mesh_cell_size = Some(resolved.mesh_cell_size);
+    density.raster_pixel_size = Some(resolved.raster_pixel_size);
+    density.padding = Some(resolved.padding);
+    density.station_weight = Some(resolved.station_weight);
+    density.segment_weight = Some(resolved.segment_weight);
+    density.density_floor = Some(resolved.density_floor);
+    let format = output
+        .map(Format::from_path)
+        .transpose()?
+        .unwrap_or(Format::Yaml);
+    let contents = match format {
+        Format::Yaml => manifest.to_yaml().map_err(CliError::GenerationYaml)?,
+        Format::Json => format!(
+            "{}\n",
+            serde_json::to_string_pretty(&manifest).map_err(CliError::GenerationJson)?
+        ),
+    };
+    match output {
+        Some(path) => {
+            write(path, contents)?;
+            Ok(vec![path.to_path_buf()])
+        }
+        None => {
+            io::stdout()
+                .write_all(contents.as_bytes())
+                .map_err(CliError::Stdout)?;
+            Ok(Vec::new())
         }
     }
 }
@@ -221,11 +292,16 @@ fn density(
 fn density_svg(analysis: &DensityAnalysis) -> String {
     use std::fmt::Write as _;
 
+    const MAX_DISPLAY_SIZE: f64 = 1200.0;
+
     let [min_x, min_y, max_x, max_y] = analysis.bounds;
     let width = max_x - min_x;
     let height = max_y - min_y;
+    let display_scale = MAX_DISPLAY_SIZE / width.max(height);
+    let display_width = width * display_scale;
+    let display_height = height * display_scale;
     let mut svg = format!(
-        "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"{min_x} {min_y} {width} {height}\">\n<rect x=\"{min_x}\" y=\"{min_y}\" width=\"{width}\" height=\"{height}\" fill=\"white\"/>\n"
+        "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"{min_x} {min_y} {width} {height}\" width=\"{display_width}\" height=\"{display_height}\" role=\"img\">\n<rect x=\"{min_x}\" y=\"{min_y}\" width=\"{width}\" height=\"{height}\" fill=\"white\"/>\n"
     );
     let maximum = analysis
         .triangles
@@ -235,9 +311,9 @@ fn density_svg(analysis: &DensityAnalysis) -> String {
     for triangle in &analysis.triangles {
         let [a, b, c] = triangle.vertices.map(|index| analysis.vertices[index]);
         let intensity = ((triangle.mass / triangle.area / maximum).sqrt() * 255.0).round() as u8;
-        let red = 245_u8;
-        let green = 245_u8.saturating_sub((u16::from(intensity) * 3 / 4) as u8);
-        let blue = 245_u8.saturating_sub(intensity);
+        let red = 255 - intensity;
+        let green = 255 - intensity;
+        let blue = 255_u8;
         writeln!(svg, "<polygon points=\"{},{} {},{} {},{}\" fill=\"#{red:02x}{green:02x}{blue:02x}\" stroke=\"#999999\" stroke-width=\"{}\"/>", a.x,a.y,b.x,b.y,c.x,c.y,width.max(height)/4000.0).unwrap();
     }
     for &[a, b] in &analysis.segments {
@@ -442,6 +518,26 @@ lines:
         let visual = fs::read_to_string(&svg).unwrap();
         assert!(visual.contains("<polygon"));
         assert!(visual.contains("<circle"));
+        let root = visual.lines().next().unwrap();
+        let dimension = |name: &str| -> f64 {
+            root.split_once(&format!(" {name}=\""))
+                .unwrap()
+                .1
+                .split_once('"')
+                .unwrap()
+                .0
+                .parse()
+                .unwrap()
+        };
+        let display_width = dimension("width");
+        let display_height = dimension("height");
+        assert_eq!(display_width.max(display_height), 1200.0);
+        let topology = MetroTopology::from_yaml(TOPOLOGY_YAML).unwrap();
+        let bounds = analyze_density(&topology, &GenerationManifest::default())
+            .unwrap()
+            .bounds;
+        let aspect_ratio = (bounds[2] - bounds[0]) / (bounds[3] - bounds[1]);
+        assert!((display_width / display_height - aspect_ratio).abs() < 1e-10);
 
         fs::remove_file(input).unwrap();
         fs::remove_file(output).unwrap();
@@ -450,6 +546,20 @@ lines:
 
     #[test]
     fn parses_commands() {
+        assert!(matches!(
+            Cli::try_parse_from(["mtrd-devtools", "derive", "topology.yaml"])
+                .unwrap()
+                .command,
+            Command::Derive { input, output: None } if input == Path::new("topology.yaml")
+        ));
+        assert!(matches!(
+            Cli::try_parse_from(["mtrd-devtools", "derive", "topology.yaml", "generation.json"])
+                .unwrap()
+                .command,
+            Command::Derive { input, output: Some(output) }
+                if input == Path::new("topology.yaml") && output == Path::new("generation.json")
+        ));
+        assert!(Cli::try_parse_from(["mtrd-devtools", "derive"]).is_err());
         for flag in ["-m", "--manifest"] {
             let cli = Cli::try_parse_from([
                 "mtrd-devtools",
@@ -505,12 +615,54 @@ lines:
     }
 
     #[test]
+    fn derive_writes_resolved_scalars_in_yaml_and_json() {
+        let input = temporary_path("derive-input.yaml");
+        let yaml = temporary_path("derived.yaml");
+        let json = temporary_path("derived.json");
+        fs::write(&input, TOPOLOGY_YAML).unwrap();
+
+        assert_eq!(
+            derive(&input, Some(&yaml)).unwrap().as_slice(),
+            std::slice::from_ref(&yaml)
+        );
+        assert_eq!(
+            derive(&input, Some(&json)).unwrap().as_slice(),
+            std::slice::from_ref(&json)
+        );
+        let yaml_contents = fs::read_to_string(&yaml).unwrap();
+        let json_contents = fs::read_to_string(&json).unwrap();
+        assert!(!yaml_contents.contains("factor:"));
+        assert!(!yaml_contents.contains("exact:"));
+        assert!(!json_contents.contains("factor"));
+        assert!(!json_contents.contains("exact"));
+        let from_yaml = GenerationManifest::from_yaml(&yaml_contents).unwrap();
+        let from_json = GenerationManifest::from_json(&json_contents).unwrap();
+        assert_eq!(from_yaml, from_json);
+        let topology = MetroTopology::from_yaml(TOPOLOGY_YAML).unwrap();
+        let resolved = analyze_density(&topology, &GenerationManifest::default())
+            .unwrap()
+            .options;
+        assert_eq!(
+            analyze_density(&topology, &from_yaml).unwrap().options,
+            resolved
+        );
+        assert!(matches!(
+            derive(&input, Some(Path::new("generation.txt"))),
+            Err(CliError::UnsupportedFormat(_))
+        ));
+
+        fs::remove_file(input).unwrap();
+        fs::remove_file(yaml).unwrap();
+        fs::remove_file(json).unwrap();
+    }
+
+    #[test]
     fn density_uses_separate_config_and_reports_invalid_yaml() {
         let input = temporary_path("config-input.yaml");
         let output = temporary_path("config-output.yaml");
         let config = temporary_path("generation.yaml");
         fs::write(&input, TOPOLOGY_YAML).unwrap();
-        fs::write(&config, "density-reshape:\n  bandwidth: { exact: 10.0 }\n").unwrap();
+        fs::write(&config, "density-reshape:\n  bandwidth: 10.0\n").unwrap();
         density(&input, Some(&output), false, Some(&config)).unwrap();
         let analysis: serde_yaml::Value =
             serde_yaml::from_str(&fs::read_to_string(&output).unwrap()).unwrap();

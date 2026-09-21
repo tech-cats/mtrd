@@ -174,20 +174,20 @@ Generation settings live in a separate YAML generation manifest, not in the
 topology manifest.
 The optional `density-reshape` block controls pre-layout density analysis.
 Its estimator is `vertex-kde` by default; `triangle-quadrature` and
-`raster-convolution` are also available. Every numeric control accepts either
-an exact value in canonical coordinate units (where applicable) or a factor
-of its automatically derived default:
+`raster-convolution` are also available. Numeric controls are plain scalar
+values in canonical coordinate units (where applicable). Omitted controls use
+defaults derived from the source topology:
 
 ```yaml
 density-reshape:
   estimator: vertex-kde
-  bandwidth: { factor: 1.0 }
-  mesh-cell-size: { exact: 400.0 }
-  raster-pixel-size: { factor: 1.0 }
-  padding: { factor: 1.0 }
-  station-weight: { factor: 1.0 }
-  segment-weight: { factor: 1.0 }
-  density-floor: { factor: 1.0 }
+  bandwidth: 400.0
+  mesh-cell-size: 100.0
+  raster-pixel-size: 100.0
+  padding: 1200.0
+  station-weight: 1.0
+  segment-weight: 0.01
+  density-floor: 0.000001
 ```
 
 The derived bandwidth is twice the median nearest-neighbour station distance;
@@ -204,6 +204,10 @@ limited to 250,000 triangles or one million raster pixels.
 
 `GenerationManifest` is the strict YAML model; omitted fields use defaults. A
 [sample generation manifest](crates/mtrd/examples/generation.yaml) is included.
+The private `mtrd-devtools derive topology.yaml [generation.yaml]` command
+exports the defaults resolved for that topology as numeric scalars. It
+writes YAML to stdout when the output path is omitted and also accepts a JSON
+output path.
 `mtrd check` validates only topology and schematic manifests. Generation
 manifest validation belongs under a future `mtrd generate check` command; the
 public CLI has no `generate` entrypoint yet. For now, the private developer

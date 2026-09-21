@@ -14,10 +14,7 @@ mod topology;
 
 use std::collections::BTreeMap;
 
-pub use generation::{
-    DensityEstimator, DensityExact, DensityFactor, DensityReshapeOptions, DensityValue,
-    GenerationManifest,
-};
+pub use generation::{DensityEstimator, DensityReshapeOptions, GenerationManifest};
 pub use languages::{LanguageError, Languages};
 pub use schematic::{
     OctilinearAxis, SchematicBackgroundOptions, SchematicCommonStationFill,

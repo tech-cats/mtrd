@@ -84,14 +84,13 @@ pub(crate) fn analyze_canonical_density(
     let segments = unique_segments(source);
     let nearest = median_nearest(&stations);
     let scale = nearest.unwrap_or_else(|| source.options.lines.width.get().max(1.0));
-    let h0 = 2.0 * scale;
     let input = &generation.density_reshape;
-    let bandwidth = positive("bandwidth", input.bandwidth.resolve(h0))?;
+    let bandwidth = positive("bandwidth", input.bandwidth.unwrap_or(2.0 * scale))?;
     let mesh_cell_size = positive(
         "mesh-cell-size",
         input
             .mesh_cell_size
-            .resolve(bandwidth / (2.0 * 2.0_f64.sqrt())),
+            .unwrap_or(bandwidth / (2.0 * 2.0_f64.sqrt())),
     )?;
     if mesh_cell_size > bandwidth / (2.0 * 2.0_f64.sqrt()) * (1.0 + 1e-12) {
         return Err(DensityError::InvalidParameter {
@@ -101,7 +100,7 @@ pub(crate) fn analyze_canonical_density(
     }
     let raster_pixel_size = positive(
         "raster-pixel-size",
-        input.raster_pixel_size.resolve(bandwidth / 4.0),
+        input.raster_pixel_size.unwrap_or(bandwidth / 4.0),
     )?;
     if raster_pixel_size > bandwidth / 4.0 * (1.0 + 1e-12) {
         return Err(DensityError::InvalidParameter {
@@ -109,9 +108,12 @@ pub(crate) fn analyze_canonical_density(
             requirement: "no greater than bandwidth / 4",
         });
     }
-    let padding = positive("padding", input.padding.resolve(3.0 * bandwidth))?;
-    let station_weight = nonnegative("station-weight", input.station_weight.resolve(1.0))?;
-    let segment_weight = nonnegative("segment-weight", input.segment_weight.resolve(1.0 / scale))?;
+    let padding = positive("padding", input.padding.unwrap_or(3.0 * bandwidth))?;
+    let station_weight = nonnegative("station-weight", input.station_weight.unwrap_or(1.0))?;
+    let segment_weight = nonnegative(
+        "segment-weight",
+        input.segment_weight.unwrap_or(1.0 / scale),
+    )?;
     if station_weight == 0.0 && segment_weight == 0.0 {
         return Err(DensityError::InvalidParameter {
             name: "station-weight/segment-weight",
@@ -132,7 +134,7 @@ pub(crate) fn analyze_canonical_density(
         "density-floor",
         input
             .density_floor
-            .resolve(0.05 * demand.max(1.0) / domain_area),
+            .unwrap_or(0.05 * demand.max(1.0) / domain_area),
     )?;
     let options = ResolvedDensityOptions {
         estimator: input.estimator,
@@ -603,9 +605,7 @@ fn reflect(index: isize, length: usize) -> usize {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{
-        DensityExact, DensityFactor, DensityValue, GenerationManifest, TopologyLine, TopologyPath,
-    };
+    use crate::{GenerationManifest, TopologyLine, TopologyPath};
 
     fn topology() -> MetroTopology {
         MetroTopology::from_yaml(
@@ -691,20 +691,20 @@ lines:
         assert_eq!(baseline.segments, shared.segments);
         assert_eq!(baseline.vertex_density, shared.vertex_density);
         assert_eq!(baseline.total_mass, shared.total_mass);
-        config.density_reshape.segment_weight = DensityValue::Exact(DensityExact { exact: 0.0 });
+        config.density_reshape.segment_weight = Some(0.0);
         let station_only = analyze_density(&topology, &config).unwrap();
         assert!(station_only.total_mass < shared.total_mass);
     }
 
     #[test]
-    fn exact_and_factor_values_resolve_and_invalid_controls_fail() {
+    fn scalar_values_override_defaults_and_invalid_controls_fail() {
         let topology = topology();
         let mut config = GenerationManifest::default();
         let default = analyze_density(&topology, &config).unwrap();
-        config.density_reshape.bandwidth = DensityValue::Factor(DensityFactor { factor: 2.0 });
+        config.density_reshape.bandwidth = Some(2.0 * default.options.bandwidth);
         let doubled = analyze_density(&topology, &config).unwrap();
         assert_eq!(doubled.options.bandwidth, 2.0 * default.options.bandwidth);
-        config.density_reshape.bandwidth = DensityValue::Exact(DensityExact { exact: 10.0 });
+        config.density_reshape.bandwidth = Some(10.0);
         assert_eq!(
             analyze_density(&topology, &config)
                 .unwrap()
@@ -712,7 +712,7 @@ lines:
                 .bandwidth,
             10.0
         );
-        config.density_reshape.mesh_cell_size = DensityValue::Exact(DensityExact { exact: 10.0 });
+        config.density_reshape.mesh_cell_size = Some(10.0);
         assert!(matches!(
             analyze_density(&topology, &config),
             Err(DensityError::InvalidParameter {
@@ -720,9 +720,8 @@ lines:
                 ..
             })
         ));
-        config.density_reshape.mesh_cell_size = DensityValue::factor_one();
-        config.density_reshape.raster_pixel_size =
-            DensityValue::Exact(DensityExact { exact: f64::NAN });
+        config.density_reshape.mesh_cell_size = None;
+        config.density_reshape.raster_pixel_size = Some(f64::NAN);
         assert!(matches!(
             analyze_density(&topology, &config),
             Err(DensityError::InvalidParameter {
@@ -733,20 +732,23 @@ lines:
     }
 
     #[test]
-    fn strict_configuration_round_trips_and_rejects_ambiguous_values() {
+    fn strict_configuration_round_trips_and_rejects_wrapped_values() {
         let options: crate::DensityReshapeOptions = serde_yaml::from_str(
-            "estimator: raster-convolution\nbandwidth: { exact: 12.0 }\nmesh-cell-size: { factor: 0.5 }\n",
-        ).unwrap();
+            "estimator: raster-convolution\nbandwidth: 12.0\nmesh-cell-size: 0.5\n",
+        )
+        .unwrap();
         let yaml = serde_yaml::to_string(&options).unwrap();
         assert_eq!(
             serde_yaml::from_str::<crate::DensityReshapeOptions>(&yaml).unwrap(),
             options
         );
         assert!(
-            serde_yaml::from_str::<crate::DensityReshapeOptions>(
-                "bandwidth: { exact: 1, factor: 2 }"
-            )
-            .is_err()
+            serde_yaml::from_str::<crate::DensityReshapeOptions>("bandwidth: { exact: 1 }")
+                .is_err()
+        );
+        assert!(
+            serde_yaml::from_str::<crate::DensityReshapeOptions>("bandwidth: { factor: 2 }")
+                .is_err()
         );
         assert!(
             serde_yaml::from_str::<crate::DensityReshapeOptions>("estimator: missing").is_err()
@@ -777,8 +779,7 @@ lines:
     fn rejects_mesh_and_raster_size_overrides_before_allocation() {
         let topology = topology();
         let mut config = GenerationManifest::default();
-        config.density_reshape.mesh_cell_size =
-            DensityValue::Factor(DensityFactor { factor: 1e-9 });
+        config.density_reshape.mesh_cell_size = Some(1e-9);
         assert!(matches!(
             analyze_density(&topology, &config),
             Err(DensityError::SizeLimit {
@@ -786,10 +787,9 @@ lines:
                 ..
             })
         ));
-        config.density_reshape.mesh_cell_size = DensityValue::factor_one();
+        config.density_reshape.mesh_cell_size = None;
         config.density_reshape.estimator = DensityEstimator::RasterConvolution;
-        config.density_reshape.raster_pixel_size =
-            DensityValue::Factor(DensityFactor { factor: 1e-9 });
+        config.density_reshape.raster_pixel_size = Some(1e-9);
         assert!(matches!(
             analyze_density(&topology, &config),
             Err(DensityError::SizeLimit {
