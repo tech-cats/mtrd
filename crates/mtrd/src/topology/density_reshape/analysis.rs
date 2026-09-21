@@ -63,14 +63,19 @@ pub struct DensityAnalysis {
 }
 
 /// Analyse a complete topology without modifying its source coordinates.
-pub fn analyze_density(topology: &MetroTopology) -> Result<DensityAnalysis, DensityError> {
+pub fn analyze_density(
+    topology: &MetroTopology,
+    generation: &crate::GenerationManifest,
+) -> Result<DensityAnalysis, DensityError> {
     let source = topology.clone().canonicalize_coordinates()?;
-    analyze_canonical_density(&source)
+    analyze_canonical_density(&source, generation)
 }
 
 pub(crate) fn analyze_canonical_density(
     source: &MetroTopology,
+    generation: &crate::GenerationManifest,
 ) -> Result<DensityAnalysis, DensityError> {
+    generation.validate()?;
     let stations: Vec<_> = source
         .stations
         .iter()
@@ -80,7 +85,7 @@ pub(crate) fn analyze_canonical_density(
     let nearest = median_nearest(&stations);
     let scale = nearest.unwrap_or_else(|| source.options.lines.width.get().max(1.0));
     let h0 = 2.0 * scale;
-    let input = &source.options.density_reshape;
+    let input = &generation.density_reshape;
     let bandwidth = positive("bandwidth", input.bandwidth.resolve(h0))?;
     let mesh_cell_size = positive(
         "mesh-cell-size",
@@ -598,7 +603,9 @@ fn reflect(index: isize, length: usize) -> usize {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{DensityExact, DensityFactor, DensityValue, TopologyLine, TopologyPath};
+    use crate::{
+        DensityExact, DensityFactor, DensityValue, GenerationManifest, TopologyLine, TopologyPath,
+    };
 
     fn topology() -> MetroTopology {
         MetroTopology::from_yaml(
@@ -630,14 +637,15 @@ lines:
 
     #[test]
     fn all_estimators_produce_positive_mass_on_a_quasi_square_mesh() {
-        let mut topology = topology();
+        let topology = topology();
+        let mut config = GenerationManifest::default();
         for estimator in [
             DensityEstimator::VertexKde,
             DensityEstimator::TriangleQuadrature,
             DensityEstimator::RasterConvolution,
         ] {
-            topology.options.density_reshape.estimator = estimator;
-            let result = analyze_density(&topology).unwrap();
+            config.density_reshape.estimator = estimator;
+            let result = analyze_density(&topology, &config).unwrap();
             let [nx, ny] = result.grid_size;
             assert_eq!(result.vertices.len(), (nx + 1) * (ny + 1));
             assert_eq!(result.triangles.len(), 2 * nx * ny);
@@ -668,7 +676,8 @@ lines:
     #[test]
     fn shared_segments_are_counted_once_and_station_density_is_independent() {
         let mut topology = topology();
-        let baseline = analyze_density(&topology).unwrap();
+        let mut config = GenerationManifest::default();
+        let baseline = analyze_density(&topology, &config).unwrap();
         topology.lines.push(TopologyLine {
             id: "blue".into(),
             names: [("en".into(), vec!["Blue".into()])].into(),
@@ -678,47 +687,48 @@ lines:
                 closed: false,
             }],
         });
-        let shared = analyze_density(&topology).unwrap();
+        let shared = analyze_density(&topology, &config).unwrap();
         assert_eq!(baseline.segments, shared.segments);
         assert_eq!(baseline.vertex_density, shared.vertex_density);
         assert_eq!(baseline.total_mass, shared.total_mass);
-        topology.options.density_reshape.segment_weight =
-            DensityValue::Exact(DensityExact { exact: 0.0 });
-        let station_only = analyze_density(&topology).unwrap();
+        config.density_reshape.segment_weight = DensityValue::Exact(DensityExact { exact: 0.0 });
+        let station_only = analyze_density(&topology, &config).unwrap();
         assert!(station_only.total_mass < shared.total_mass);
     }
 
     #[test]
     fn exact_and_factor_values_resolve_and_invalid_controls_fail() {
-        let mut topology = topology();
-        let default = analyze_density(&topology).unwrap();
-        topology.options.density_reshape.bandwidth =
-            DensityValue::Factor(DensityFactor { factor: 2.0 });
-        let doubled = analyze_density(&topology).unwrap();
+        let topology = topology();
+        let mut config = GenerationManifest::default();
+        let default = analyze_density(&topology, &config).unwrap();
+        config.density_reshape.bandwidth = DensityValue::Factor(DensityFactor { factor: 2.0 });
+        let doubled = analyze_density(&topology, &config).unwrap();
         assert_eq!(doubled.options.bandwidth, 2.0 * default.options.bandwidth);
-        topology.options.density_reshape.bandwidth =
-            DensityValue::Exact(DensityExact { exact: 10.0 });
-        assert_eq!(analyze_density(&topology).unwrap().options.bandwidth, 10.0);
-        topology.options.density_reshape.mesh_cell_size =
-            DensityValue::Exact(DensityExact { exact: 10.0 });
+        config.density_reshape.bandwidth = DensityValue::Exact(DensityExact { exact: 10.0 });
+        assert_eq!(
+            analyze_density(&topology, &config)
+                .unwrap()
+                .options
+                .bandwidth,
+            10.0
+        );
+        config.density_reshape.mesh_cell_size = DensityValue::Exact(DensityExact { exact: 10.0 });
         assert!(matches!(
-            analyze_density(&topology),
+            analyze_density(&topology, &config),
             Err(DensityError::InvalidParameter {
                 name: "mesh-cell-size",
                 ..
             })
         ));
-        topology.options.density_reshape.mesh_cell_size = DensityValue::factor_one();
-        topology.options.density_reshape.raster_pixel_size =
+        config.density_reshape.mesh_cell_size = DensityValue::factor_one();
+        config.density_reshape.raster_pixel_size =
             DensityValue::Exact(DensityExact { exact: f64::NAN });
         assert!(matches!(
-            analyze_density(&topology),
-            Err(DensityError::InvalidTopology(
-                TopologyRenderError::InvalidDensityOptions {
-                    name: "raster-pixel-size",
-                    ..
-                }
-            ))
+            analyze_density(&topology, &config),
+            Err(DensityError::InvalidParameter {
+                name: "raster-pixel-size",
+                ..
+            })
         ));
     }
 
@@ -747,9 +757,10 @@ lines:
     #[test]
     fn handles_empty_and_single_station_topologies_without_nan_defaults() {
         let mut topology = topology();
+        let config = GenerationManifest::default();
         topology.stations.clear();
         topology.lines.clear();
-        let empty = analyze_density(&topology).unwrap();
+        let empty = analyze_density(&topology, &config).unwrap();
         assert!(empty.total_mass.is_finite());
         assert!(empty.triangles.iter().all(|triangle| triangle.mass > 0.0));
         topology.stations.push(crate::TopologyStation {
@@ -757,29 +768,30 @@ lines:
             names: [("en".into(), vec!["Alone".into()])].into(),
             position: TopologyPosition { x: 0.0, y: 0.0 },
         });
-        let one = analyze_density(&topology).unwrap();
+        let one = analyze_density(&topology, &config).unwrap();
         assert!(one.options.bandwidth > 0.0);
         assert!(one.total_mass.is_finite());
     }
 
     #[test]
     fn rejects_mesh_and_raster_size_overrides_before_allocation() {
-        let mut topology = topology();
-        topology.options.density_reshape.mesh_cell_size =
+        let topology = topology();
+        let mut config = GenerationManifest::default();
+        config.density_reshape.mesh_cell_size =
             DensityValue::Factor(DensityFactor { factor: 1e-9 });
         assert!(matches!(
-            analyze_density(&topology),
+            analyze_density(&topology, &config),
             Err(DensityError::SizeLimit {
                 kind: "mesh triangles",
                 ..
             })
         ));
-        topology.options.density_reshape.mesh_cell_size = DensityValue::factor_one();
-        topology.options.density_reshape.estimator = DensityEstimator::RasterConvolution;
-        topology.options.density_reshape.raster_pixel_size =
+        config.density_reshape.mesh_cell_size = DensityValue::factor_one();
+        config.density_reshape.estimator = DensityEstimator::RasterConvolution;
+        config.density_reshape.raster_pixel_size =
             DensityValue::Factor(DensityFactor { factor: 1e-9 });
         assert!(matches!(
-            analyze_density(&topology),
+            analyze_density(&topology, &config),
             Err(DensityError::SizeLimit {
                 kind: "raster pixels",
                 ..

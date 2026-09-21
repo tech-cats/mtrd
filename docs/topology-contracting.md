@@ -17,10 +17,10 @@ Coordinate initialisation and contracting are implemented, but
 topology-to-schematic layout is not. The public CLI therefore has no schematic
 generation command.
 
-The library entry point is `generate_schematic(&MetroTopology)`.
-It currently returns `SchematicGenerationError::StageUnavailable` after
-successful contraction, or a typed contraction error if the topology
-cannot be prepared.
+The library entry point is `generate_schematic(&MetroTopology, &GenerationManifest)`.
+The config is a separate YAML manifest. It currently returns
+`SchematicGenerationError::StageUnavailable` after density analysis and
+successful contraction, or a typed error if the input cannot be prepared.
 
 For direct pipeline access, call `MetroTopology::canonicalize_coordinates`
 after deserialisation and pass the returned topology to `contract_topology`.

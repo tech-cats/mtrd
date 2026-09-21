@@ -5,7 +5,7 @@ use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 use clap::{Parser, Subcommand};
-use mtrd::{DensityAnalysis, DensityError, MetroTopology, analyze_density};
+use mtrd::{DensityAnalysis, DensityError, GenerationManifest, MetroTopology, analyze_density};
 use thiserror::Error;
 
 use self::contracted::{ContractedManifestError, ContractedTopology};
@@ -21,6 +21,9 @@ struct Cli {
 enum Command {
     /// Inspect the triangular density mesh of a topology.
     Density {
+        /// Generation manifest in YAML (defaults to built-in settings).
+        #[arg(short = 'm', long = "manifest", value_name = "FILE")]
+        generation_manifest: Option<PathBuf>,
         /// Source topology manifest in YAML or JSON.
         input: PathBuf,
         /// Destination analysis manifest (defaults to <input stem>.density.<extension>).
@@ -106,6 +109,13 @@ enum CliError {
         source: serde_json::Error,
     },
 
+    #[error("invalid generation manifest YAML in '{path}': {source}")]
+    GenerationManifestYaml {
+        path: PathBuf,
+        #[source]
+        source: serde_yaml::Error,
+    },
+
     #[error(transparent)]
     ContractedManifest(#[from] ContractedManifestError),
 
@@ -140,7 +150,13 @@ fn run(cli: Cli) -> Result<Vec<PathBuf>, CliError> {
             input,
             output,
             render,
-        } => density(&input, output.as_deref(), render),
+            generation_manifest,
+        } => density(
+            &input,
+            output.as_deref(),
+            render,
+            generation_manifest.as_deref(),
+        ),
         Command::Contract {
             input,
             output,
@@ -152,7 +168,12 @@ fn run(cli: Cli) -> Result<Vec<PathBuf>, CliError> {
     }
 }
 
-fn density(input: &Path, output: Option<&Path>, render: bool) -> Result<Vec<PathBuf>, CliError> {
+fn density(
+    input: &Path,
+    output: Option<&Path>,
+    render: bool,
+    generation_path: Option<&Path>,
+) -> Result<Vec<PathBuf>, CliError> {
     let input_format = Format::from_path(input)?;
     let output = output
         .map(Path::to_path_buf)
@@ -173,7 +194,16 @@ fn density(input: &Path, output: Option<&Path>, render: bool) -> Result<Vec<Path
             })?
         }
     };
-    let analysis = analyze_density(&topology)?;
+    let generation = match generation_path {
+        Some(path) => GenerationManifest::from_yaml(&read(path)?).map_err(|source| {
+            CliError::GenerationManifestYaml {
+                path: path.to_path_buf(),
+                source,
+            }
+        })?,
+        None => GenerationManifest::default(),
+    };
+    let analysis = analyze_density(&topology, &generation)?;
     let data = match output_format {
         Format::Yaml => serde_yaml::to_string(&analysis).map_err(CliError::DensityYaml)?,
         Format::Json => serde_json::to_string_pretty(&analysis).map_err(CliError::DensityJson)?,
@@ -398,7 +428,7 @@ lines:
         fs::write(&input, TOPOLOGY_YAML).unwrap();
 
         assert_eq!(
-            density(&input, Some(&output), false).unwrap(),
+            density(&input, Some(&output), false, None).unwrap(),
             vec![output.clone()]
         );
         let data = fs::read_to_string(&output).unwrap();
@@ -406,7 +436,7 @@ lines:
         assert!(!svg.exists());
 
         assert_eq!(
-            density(&input, Some(&output), true).unwrap(),
+            density(&input, Some(&output), true, None).unwrap(),
             vec![output.clone(), svg.clone()]
         );
         let visual = fs::read_to_string(&svg).unwrap();
@@ -420,6 +450,31 @@ lines:
 
     #[test]
     fn parses_commands() {
+        for flag in ["-m", "--manifest"] {
+            let cli = Cli::try_parse_from([
+                "mtrd-devtools",
+                "density",
+                flag,
+                "generation.yaml",
+                "topology.yaml",
+            ])
+            .unwrap();
+            assert!(
+                matches!(cli.command, Command::Density { generation_manifest: Some(path), .. } if path == Path::new("generation.yaml"))
+            );
+        }
+        for old_flag in ["-c", "--config"] {
+            assert!(
+                Cli::try_parse_from([
+                    "mtrd-devtools",
+                    "density",
+                    old_flag,
+                    "generation.yaml",
+                    "topology.yaml",
+                ])
+                .is_err()
+            );
+        }
         assert!(matches!(
             Cli::try_parse_from(["mtrd-devtools", "density", "-r", "topology.yaml"])
                 .unwrap()
@@ -447,6 +502,31 @@ lines:
             Command::Render { output: None, .. }
         ));
         assert!(Cli::try_parse_from(["mtrd-devtools", "preprocess", "topology.yaml"]).is_err());
+    }
+
+    #[test]
+    fn density_uses_separate_config_and_reports_invalid_yaml() {
+        let input = temporary_path("config-input.yaml");
+        let output = temporary_path("config-output.yaml");
+        let config = temporary_path("generation.yaml");
+        fs::write(&input, TOPOLOGY_YAML).unwrap();
+        fs::write(&config, "density-reshape:\n  bandwidth: { exact: 10.0 }\n").unwrap();
+        density(&input, Some(&output), false, Some(&config)).unwrap();
+        let analysis: serde_yaml::Value =
+            serde_yaml::from_str(&fs::read_to_string(&output).unwrap()).unwrap();
+        assert_eq!(analysis["options"]["bandwidth"].as_f64(), Some(10.0));
+        density(&input, Some(&output), false, None).unwrap();
+        let defaults: serde_yaml::Value =
+            serde_yaml::from_str(&fs::read_to_string(&output).unwrap()).unwrap();
+        assert_ne!(defaults["options"]["bandwidth"].as_f64(), Some(10.0));
+        fs::write(&config, "density-reshape: {unknown: true}\n").unwrap();
+        assert!(matches!(
+            density(&input, Some(&output), false, Some(&config)),
+            Err(CliError::GenerationManifestYaml { .. })
+        ));
+        fs::remove_file(input).unwrap();
+        fs::remove_file(output).unwrap();
+        fs::remove_file(config).unwrap();
     }
 
     #[test]

@@ -19,7 +19,6 @@ pub use density_reshape::{
     DensityAnalysis, DensityError, DensityTriangle, ResolvedDensityOptions, analyze_density,
 };
 pub use options::{
-    DensityEstimator, DensityExact, DensityFactor, DensityReshapeOptions, DensityValue,
     TopologyBackgroundOptions, TopologyCartesianAxes, TopologyCommonStationFill,
     TopologyCommonStationOptions, TopologyCommonStationStroke, TopologyCoordinateOptions,
     TopologyGeographicAxes, TopologyInterchangeStationFill, TopologyInterchangeStationOptions,
@@ -54,12 +53,13 @@ pub enum SchematicGenerationError {
 /// contracted topology currently returns [`SchematicGenerationError::StageUnavailable`].
 pub fn generate_schematic(
     topology: &MetroTopology,
+    generation: &crate::GenerationManifest,
 ) -> Result<SchematicManifest, SchematicGenerationError> {
     let topology = topology
         .clone()
         .canonicalize_coordinates()
         .map_err(SchematicGenerationError::Initialize)?;
-    let _density = density_reshape::analyze_canonical_density(&topology)?;
+    let _density = density_reshape::analyze_canonical_density(&topology, generation)?;
     let density_warp = density_reshape::DensityWarp::identity(&topology);
     let contracted = contract::contract_topology(topology)?;
     let warped_targets =

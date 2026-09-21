@@ -1739,7 +1739,7 @@ stations:
         }
 
         assert_eq!(
-            crate::generate_schematic(&source),
+            crate::generate_schematic(&source, &crate::GenerationManifest::default()),
             Err(crate::SchematicGenerationError::StageUnavailable)
         );
     }

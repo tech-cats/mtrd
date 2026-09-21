@@ -7,8 +7,9 @@ use clap::{ArgAction, Parser, Subcommand, ValueEnum};
 use thiserror::Error;
 
 use mtrd::{
-    MetroTopology, SchematicManifest, SchematicRenderError, TopologyRenderError,
-    render_schematic_svg, render_topology_svg, validate_schematic, validate_topology,
+    DensityError, GenerationManifest, MetroTopology, SchematicManifest, SchematicRenderError,
+    TopologyRenderError, analyze_density, render_schematic_svg, render_topology_svg,
+    validate_schematic, validate_topology,
 };
 
 #[derive(Debug, Parser)]
@@ -39,6 +40,15 @@ enum Command {
 
     /// Check whether a metro manifest has valid syntax and schema.
     Check {
+        /// Validate a generation YAML manifest alongside a topology manifest.
+        #[arg(
+            short = 'm',
+            long = "manifest",
+            value_name = "FILE",
+            requires = "topology",
+            conflicts_with = "schematic"
+        )]
+        generation_manifest: Option<PathBuf>,
         /// Print canonical YAML (-v) or detailed debug output (-vv).
         #[arg(short = 'v', action = ArgAction::Count)]
         verbose: u8,
@@ -191,6 +201,16 @@ enum CliError {
     #[error("invalid schematic manifest: {0}")]
     InvalidSchematic(SchematicRenderError),
 
+    #[error("invalid generation manifest YAML in '{path}': {source}")]
+    GenerationManifestYaml {
+        path: PathBuf,
+        #[source]
+        source: serde_yaml::Error,
+    },
+
+    #[error("invalid generation manifest: {0}")]
+    GenerationManifest(#[from] DensityError),
+
     #[error("failed to determine the current directory: {0}")]
     CurrentDirectory(#[source] std::io::Error),
 
@@ -223,6 +243,7 @@ fn run(cli: Cli) -> Result<String, CliError> {
             verbose,
             topology,
             schematic,
+            generation_manifest,
         } => {
             let kind = if topology {
                 debug_assert!(!schematic);
@@ -231,7 +252,7 @@ fn run(cli: Cli) -> Result<String, CliError> {
                 debug_assert!(schematic);
                 ManifestKind::Schematic
             };
-            check(&input, verbose, kind)
+            check(&input, verbose, kind, generation_manifest.as_deref())
         }
         Command::Render {
             topology,
@@ -250,6 +271,21 @@ fn run(cli: Cli) -> Result<String, CliError> {
             render(&input, output.as_deref(), timestamp, kind)
         }
     }
+}
+
+fn read_generation_manifest(path: &Path) -> Result<GenerationManifest, CliError> {
+    let source = fs::read_to_string(path).map_err(|source| CliError::Read {
+        path: path.to_path_buf(),
+        source,
+    })?;
+    let generation = GenerationManifest::from_yaml(&source).map_err(|source| {
+        CliError::GenerationManifestYaml {
+            path: path.to_path_buf(),
+            source,
+        }
+    })?;
+    generation.validate()?;
+    Ok(generation)
 }
 
 fn example(kind: ExampleKind) -> &'static str {
@@ -349,13 +385,21 @@ fn convert(input: &Path, output: &Path) -> Result<(), CliError> {
     })
 }
 
-fn check(input: &Path, verbose: u8, kind: ManifestKind) -> Result<String, CliError> {
+fn check(
+    input: &Path,
+    verbose: u8,
+    kind: ManifestKind,
+    generation_path: Option<&Path>,
+) -> Result<String, CliError> {
     let format = Format::from_path(input)?;
 
     match kind {
         ManifestKind::Topology => {
             let topology = read_topology(input, format)?;
             validate_topology(&topology).map_err(CliError::InvalidTopology)?;
+            if let Some(path) = generation_path {
+                analyze_density(&topology, &read_generation_manifest(path)?)?;
+            }
 
             match verbose {
                 0 => Ok(format!("{}: valid", input.display())),
@@ -542,7 +586,8 @@ lines:
                 verbose: 2,
                 topology: true,
                 schematic: false,
-                input
+                input,
+                ..
             } if input == Path::new("topology.yaml")
         ));
 
@@ -553,7 +598,8 @@ lines:
                 verbose: 0,
                 topology: false,
                 schematic: true,
-                input
+                input,
+                ..
             } if input == Path::new("schematic.yaml")
         ));
     }
@@ -592,6 +638,114 @@ lines:
             let error = Cli::try_parse_from(["mtrd", command, "topology.yaml"]).unwrap_err();
             assert_eq!(error.kind(), clap::error::ErrorKind::InvalidSubcommand);
         }
+    }
+
+    #[test]
+    fn checks_separate_generation_config_and_rejects_old_topology_field() {
+        for flag in ["-m", "--manifest"] {
+            let cli = Cli::try_parse_from([
+                "mtrd",
+                "check",
+                "-t",
+                flag,
+                "generation.yaml",
+                "topology.yaml",
+            ])
+            .unwrap();
+            assert!(
+                matches!(cli.command, Command::Check { generation_manifest: Some(path), .. } if path == Path::new("generation.yaml"))
+            );
+        }
+        for old_flag in ["-c", "--config"] {
+            assert!(
+                Cli::try_parse_from([
+                    "mtrd",
+                    "check",
+                    "-t",
+                    old_flag,
+                    "generation.yaml",
+                    "topology.yaml",
+                ])
+                .is_err()
+            );
+        }
+        assert!(
+            Cli::try_parse_from([
+                "mtrd",
+                "check",
+                "-s",
+                "-m",
+                "generation.yaml",
+                "schematic.yaml",
+            ])
+            .is_err()
+        );
+
+        let topology_path = temporary_path("yaml");
+        let config_path = temporary_path("config.yaml");
+        fs::write(&topology_path, TOPOLOGY_EXAMPLE).unwrap();
+        fs::write(
+            &config_path,
+            "density-reshape:\n  bandwidth: { factor: 1.0 }\n",
+        )
+        .unwrap();
+        assert!(
+            check(
+                &topology_path,
+                0,
+                ManifestKind::Topology,
+                Some(&config_path)
+            )
+            .is_ok()
+        );
+        fs::write(
+            &config_path,
+            "density-reshape:\n  bandwidth: { exact: -1.0 }\n",
+        )
+        .unwrap();
+        assert!(matches!(
+            check(
+                &topology_path,
+                0,
+                ManifestKind::Topology,
+                Some(&config_path)
+            ),
+            Err(CliError::GenerationManifest(
+                DensityError::InvalidParameter {
+                    name: "bandwidth",
+                    ..
+                }
+            ))
+        ));
+        fs::write(&config_path, "density-reshape:\n  bandwidth: { factor: 1.0 }\n  mesh-cell-size: { exact: 1000000.0 }\n").unwrap();
+        assert!(matches!(
+            check(
+                &topology_path,
+                0,
+                ManifestKind::Topology,
+                Some(&config_path)
+            ),
+            Err(CliError::GenerationManifest(
+                DensityError::InvalidParameter {
+                    name: "mesh-cell-size",
+                    ..
+                }
+            ))
+        ));
+        fs::write(&config_path, "unknown: true\n").unwrap();
+        assert!(matches!(
+            check(
+                &topology_path,
+                0,
+                ManifestKind::Topology,
+                Some(&config_path)
+            ),
+            Err(CliError::GenerationManifestYaml { .. })
+        ));
+        let old = TOPOLOGY_EXAMPLE.replacen("options:\n", "options:\n  density-reshape: {}\n", 1);
+        assert!(MetroTopology::from_yaml(&old).is_err());
+        fs::remove_file(topology_path).unwrap();
+        fs::remove_file(config_path).unwrap();
     }
 
     #[test]
@@ -748,22 +902,22 @@ lines:
         fs::write(&path, YAML).unwrap();
 
         assert!(
-            check(&path, 0, ManifestKind::Topology)
+            check(&path, 0, ManifestKind::Topology, None)
                 .unwrap()
                 .ends_with(": valid")
         );
         assert!(
-            check(&path, 1, ManifestKind::Topology)
+            check(&path, 1, ManifestKind::Topology, None)
                 .unwrap()
                 .starts_with("options:")
         );
         assert!(
-            check(&path, 2, ManifestKind::Topology)
+            check(&path, 2, ManifestKind::Topology, None)
                 .unwrap()
                 .starts_with("MetroTopology {")
         );
         assert!(matches!(
-            check(&path, 3, ManifestKind::Topology),
+            check(&path, 3, ManifestKind::Topology, None),
             Err(CliError::ExcessiveVerbosity)
         ));
 
@@ -779,17 +933,17 @@ lines:
         fs::write(&json_path, schematic.to_json().unwrap()).unwrap();
 
         assert!(
-            check(&yaml_path, 0, ManifestKind::Schematic)
+            check(&yaml_path, 0, ManifestKind::Schematic, None)
                 .unwrap()
                 .ends_with(": valid")
         );
         assert!(
-            check(&yaml_path, 1, ManifestKind::Schematic)
+            check(&yaml_path, 1, ManifestKind::Schematic, None)
                 .unwrap()
                 .starts_with("options:")
         );
         assert!(
-            check(&json_path, 2, ManifestKind::Schematic)
+            check(&json_path, 2, ManifestKind::Schematic, None)
                 .unwrap()
                 .starts_with("SchematicManifest {")
         );
@@ -805,7 +959,7 @@ lines:
         fs::write(&path, yaml).unwrap();
 
         assert!(matches!(
-            check(&path, 0, ManifestKind::Schematic),
+            check(&path, 0, ManifestKind::Schematic, None),
             Err(CliError::ParseYaml { .. })
         ));
 
@@ -819,7 +973,7 @@ lines:
         fs::write(&path, yaml).unwrap();
 
         assert!(matches!(
-            check(&path, 0, ManifestKind::Topology),
+            check(&path, 0, ManifestKind::Topology, None),
             Err(CliError::InvalidTopology(
                 TopologyRenderError::UnknownStation { line, station }
             ))
@@ -874,7 +1028,7 @@ lines:
         fs::write(&input, yaml).unwrap();
 
         assert!(
-            check(&input, 0, ManifestKind::Topology)
+            check(&input, 0, ManifestKind::Topology, None)
                 .unwrap()
                 .ends_with(": valid")
         );

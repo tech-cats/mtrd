@@ -6,6 +6,7 @@
 //! YAML is the primary, human-editable manifest format. JSON uses the same
 //! schemas and is available for interchange with web applications.
 
+mod generation;
 mod languages;
 mod manifest_format;
 mod schematic;
@@ -13,6 +14,10 @@ mod topology;
 
 use std::collections::BTreeMap;
 
+pub use generation::{
+    DensityEstimator, DensityExact, DensityFactor, DensityReshapeOptions, DensityValue,
+    GenerationManifest,
+};
 pub use languages::{LanguageError, Languages};
 pub use schematic::{
     OctilinearAxis, SchematicBackgroundOptions, SchematicCommonStationFill,
@@ -26,8 +31,7 @@ pub use schematic::{
 };
 pub use topology::{
     ContractedEdge, ContractedNode, ContractedPath, ContractedTopology, DensityAnalysis,
-    DensityError, DensityEstimator, DensityExact, DensityFactor, DensityReshapeOptions,
-    DensityTriangle, DensityValue, DuplicateStationPositionGroup, DuplicateStationPositionGroups,
+    DensityError, DensityTriangle, DuplicateStationPositionGroup, DuplicateStationPositionGroups,
     EdgeEndpoint, IncidentEdge, LocatedOccurrence, MetroTopology, ReducedTraversal,
     ResolvedDensityOptions, RetentionReason, SchematicGenerationError, SourceSegmentSpan,
     StationNeighborOrder, TopologyBackgroundOptions, TopologyCartesianAxes,

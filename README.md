@@ -170,23 +170,24 @@ coordinates with rightward `x` and downward `y` axes, visible labels
 (`hidden: false`), and a scale of `1.0`. Canonical YAML and JSON include these
 resolved values.
 
-The optional `options.density-reshape` block controls pre-layout density
-analysis. Its estimator is `vertex-kde` by default; `triangle-quadrature` and
+Generation settings live in a separate YAML generation manifest, not in the
+topology manifest.
+The optional `density-reshape` block controls pre-layout density analysis.
+Its estimator is `vertex-kde` by default; `triangle-quadrature` and
 `raster-convolution` are also available. Every numeric control accepts either
 an exact value in canonical coordinate units (where applicable) or a factor
 of its automatically derived default:
 
 ```yaml
-options:
-  density-reshape:
-    estimator: vertex-kde
-    bandwidth: { factor: 1.0 }
-    mesh-cell-size: { exact: 400.0 }
-    raster-pixel-size: { factor: 1.0 }
-    padding: { factor: 1.0 }
-    station-weight: { factor: 1.0 }
-    segment-weight: { factor: 1.0 }
-    density-floor: { factor: 1.0 }
+density-reshape:
+  estimator: vertex-kde
+  bandwidth: { factor: 1.0 }
+  mesh-cell-size: { exact: 400.0 }
+  raster-pixel-size: { factor: 1.0 }
+  padding: { factor: 1.0 }
+  station-weight: { factor: 1.0 }
+  segment-weight: { factor: 1.0 }
+  density-floor: { factor: 1.0 }
 ```
 
 The derived bandwidth is twice the median nearest-neighbour station distance;
@@ -201,10 +202,19 @@ least one demand weight positive. Mesh and raster resolution cannot be coarser
 than their defaults relative to the resolved bandwidth. Analysis size is
 limited to 250,000 triangles or one million raster pixels.
 
-`analyze_density(&MetroTopology)` exposes the resolved parameters, mesh,
-sampled densities, triangle masses, and diagnostics. This stage does not yet
-deform station positions or generate a schematic map. For inspectable data and
-an optional SVG heatmap, use the private `mtrd-devtools density` command.
+`GenerationManifest` is the strict YAML model; omitted fields use defaults. A
+[sample generation manifest](crates/mtrd/examples/generation.yaml) is included.
+Use `mtrd check -t -m generation.yaml topology.yaml` to validate both files.
+The `-m`/`--manifest` path is supplied for this invocation; mtrd does not search
+for or retain a project-wide configuration file.
+The public CLI has no generation command yet. The private developer command
+`mtrd-devtools density -m generation.yaml topology.yaml` uses the manifest.
+
+`analyze_density(&MetroTopology, &GenerationManifest)` exposes the resolved
+parameters, mesh, sampled densities, triangle masses, and diagnostics. This
+stage does not yet deform station positions or generate a schematic map. The
+private `mtrd-devtools density` command provides inspectable data and an
+optional SVG heatmap.
 
 The whole `coordinates` mapping may be omitted, and `axes` may be omitted when
 `type` is present. If the mapping is present, `type` is required:
