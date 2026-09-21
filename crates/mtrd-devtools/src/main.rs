@@ -5,7 +5,7 @@ use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 use clap::{Parser, Subcommand};
-use mtrd::MetroTopology;
+use mtrd::{DensityAnalysis, DensityError, MetroTopology, analyze_density};
 use thiserror::Error;
 
 use self::contracted::{ContractedManifestError, ContractedTopology};
@@ -19,6 +19,16 @@ struct Cli {
 
 #[derive(Debug, Subcommand)]
 enum Command {
+    /// Inspect the triangular density mesh of a topology.
+    Density {
+        /// Source topology manifest in YAML or JSON.
+        input: PathBuf,
+        /// Destination analysis manifest (defaults to <input stem>.density.<extension>).
+        output: Option<PathBuf>,
+        /// Also render a density heatmap SVG.
+        #[arg(short, long)]
+        render: bool,
+    },
     /// Generate a contracted topology manifest.
     Contract {
         /// Source topology manifest in YAML or JSON.
@@ -98,6 +108,15 @@ enum CliError {
 
     #[error(transparent)]
     ContractedManifest(#[from] ContractedManifestError),
+
+    #[error(transparent)]
+    Density(#[from] DensityError),
+
+    #[error("failed to serialise density analysis: {0}")]
+    DensityYaml(serde_yaml::Error),
+
+    #[error("failed to serialise density analysis: {0}")]
+    DensityJson(serde_json::Error),
 }
 
 fn main() -> ExitCode {
@@ -117,6 +136,11 @@ fn main() -> ExitCode {
 
 fn run(cli: Cli) -> Result<Vec<PathBuf>, CliError> {
     match cli.command {
+        Command::Density {
+            input,
+            output,
+            render,
+        } => density(&input, output.as_deref(), render),
         Command::Contract {
             input,
             output,
@@ -126,6 +150,95 @@ fn run(cli: Cli) -> Result<Vec<PathBuf>, CliError> {
             render(&input, output.as_deref()).map(|output| vec![output])
         }
     }
+}
+
+fn density(input: &Path, output: Option<&Path>, render: bool) -> Result<Vec<PathBuf>, CliError> {
+    let input_format = Format::from_path(input)?;
+    let output = output
+        .map(Path::to_path_buf)
+        .unwrap_or_else(|| density_output_path(input));
+    let output_format = Format::from_path(&output)?;
+    let source = read(input)?;
+    let topology = match input_format {
+        Format::Yaml => {
+            MetroTopology::from_yaml(&source).map_err(|source| CliError::TopologyYaml {
+                path: input.to_path_buf(),
+                source,
+            })?
+        }
+        Format::Json => {
+            MetroTopology::from_json(&source).map_err(|source| CliError::TopologyJson {
+                path: input.to_path_buf(),
+                source,
+            })?
+        }
+    };
+    let analysis = analyze_density(&topology)?;
+    let data = match output_format {
+        Format::Yaml => serde_yaml::to_string(&analysis).map_err(CliError::DensityYaml)?,
+        Format::Json => serde_json::to_string_pretty(&analysis).map_err(CliError::DensityJson)?,
+    };
+    write(&output, data)?;
+    let mut outputs = vec![output.clone()];
+    if render {
+        let svg = render_output_path(&output);
+        write(&svg, density_svg(&analysis))?;
+        outputs.push(svg);
+    }
+    Ok(outputs)
+}
+
+fn density_svg(analysis: &DensityAnalysis) -> String {
+    use std::fmt::Write as _;
+
+    let [min_x, min_y, max_x, max_y] = analysis.bounds;
+    let width = max_x - min_x;
+    let height = max_y - min_y;
+    let mut svg = format!(
+        "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"{min_x} {min_y} {width} {height}\">\n<rect x=\"{min_x}\" y=\"{min_y}\" width=\"{width}\" height=\"{height}\" fill=\"white\"/>\n"
+    );
+    let maximum = analysis
+        .triangles
+        .iter()
+        .map(|triangle| triangle.mass / triangle.area)
+        .fold(0.0_f64, f64::max);
+    for triangle in &analysis.triangles {
+        let [a, b, c] = triangle.vertices.map(|index| analysis.vertices[index]);
+        let intensity = ((triangle.mass / triangle.area / maximum).sqrt() * 255.0).round() as u8;
+        let red = 245_u8;
+        let green = 245_u8.saturating_sub((u16::from(intensity) * 3 / 4) as u8);
+        let blue = 245_u8.saturating_sub(intensity);
+        writeln!(svg, "<polygon points=\"{},{} {},{} {},{}\" fill=\"#{red:02x}{green:02x}{blue:02x}\" stroke=\"#999999\" stroke-width=\"{}\"/>", a.x,a.y,b.x,b.y,c.x,c.y,width.max(height)/4000.0).unwrap();
+    }
+    for &[a, b] in &analysis.segments {
+        writeln!(
+            svg,
+            "<path d=\"M {} {} L {} {}\" fill=\"none\" stroke=\"#263238\" stroke-width=\"{}\"/>",
+            a.x,
+            a.y,
+            b.x,
+            b.y,
+            width.max(height) / 700.0
+        )
+        .unwrap();
+    }
+    for station in &analysis.stations {
+        writeln!(svg, "<circle cx=\"{}\" cy=\"{}\" r=\"{}\" fill=\"#ffffff\" stroke=\"#263238\" stroke-width=\"{}\"/>",station.x,station.y,width.max(height)/450.0,width.max(height)/1500.0).unwrap();
+    }
+    svg.push_str("</svg>\n");
+    svg
+}
+
+fn density_output_path(input: &Path) -> PathBuf {
+    let extension = input
+        .extension()
+        .expect("input format has already been determined")
+        .to_os_string();
+    let mut output = input.to_path_buf();
+    output.set_extension("density");
+    output.as_mut_os_string().push(".");
+    output.as_mut_os_string().push(extension);
+    output
 }
 
 fn contract(input: &Path, output: Option<&Path>, render: bool) -> Result<Vec<PathBuf>, CliError> {
@@ -278,7 +391,45 @@ lines:
     }
 
     #[test]
+    fn density_writes_data_by_default_and_svg_only_when_requested() {
+        let input = temporary_path("density-input.yaml");
+        let output = temporary_path("density-output.json");
+        let svg = render_output_path(&output);
+        fs::write(&input, TOPOLOGY_YAML).unwrap();
+
+        assert_eq!(
+            density(&input, Some(&output), false).unwrap(),
+            vec![output.clone()]
+        );
+        let data = fs::read_to_string(&output).unwrap();
+        assert!(data.contains("\"triangles\""));
+        assert!(!svg.exists());
+
+        assert_eq!(
+            density(&input, Some(&output), true).unwrap(),
+            vec![output.clone(), svg.clone()]
+        );
+        let visual = fs::read_to_string(&svg).unwrap();
+        assert!(visual.contains("<polygon"));
+        assert!(visual.contains("<circle"));
+
+        fs::remove_file(input).unwrap();
+        fs::remove_file(output).unwrap();
+        fs::remove_file(svg).unwrap();
+    }
+
+    #[test]
     fn parses_commands() {
+        assert!(matches!(
+            Cli::try_parse_from(["mtrd-devtools", "density", "-r", "topology.yaml"])
+                .unwrap()
+                .command,
+            Command::Density {
+                output: None,
+                render: true,
+                ..
+            }
+        ));
         assert!(matches!(
             Cli::try_parse_from(["mtrd-devtools", "contract", "-r", "topology.yaml"])
                 .unwrap()

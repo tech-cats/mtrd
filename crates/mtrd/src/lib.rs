@@ -25,10 +25,12 @@ pub use schematic::{
     render_schematic_svg, validate_schematic,
 };
 pub use topology::{
-    ContractedEdge, ContractedNode, ContractedPath, ContractedTopology,
-    DuplicateStationPositionGroup, DuplicateStationPositionGroups, EdgeEndpoint, IncidentEdge,
-    LocatedOccurrence, MetroTopology, ReducedTraversal, RetentionReason, SchematicGenerationError,
-    SourceSegmentSpan, StationNeighborOrder, TopologyBackgroundOptions, TopologyCartesianAxes,
+    ContractedEdge, ContractedNode, ContractedPath, ContractedTopology, DensityAnalysis,
+    DensityError, DensityEstimator, DensityExact, DensityFactor, DensityReshapeOptions,
+    DensityTriangle, DensityValue, DuplicateStationPositionGroup, DuplicateStationPositionGroups,
+    EdgeEndpoint, IncidentEdge, LocatedOccurrence, MetroTopology, ReducedTraversal,
+    ResolvedDensityOptions, RetentionReason, SchematicGenerationError, SourceSegmentSpan,
+    StationNeighborOrder, TopologyBackgroundOptions, TopologyCartesianAxes,
     TopologyCommonStationFill, TopologyCommonStationOptions, TopologyCommonStationStroke,
     TopologyContractError, TopologyCoordinateOptions, TopologyGeographicAxes,
     TopologyInterchangeStationFill, TopologyInterchangeStationOptions,
@@ -36,7 +38,7 @@ pub use topology::{
     TopologyLineOptions, TopologyOptions, TopologyPath, TopologyPosition, TopologyRenderError,
     TopologyScale, TopologyStation, TopologyStationColor, TopologyStationOptions,
     TopologyStrokeAlignment, TopologyValueError, UnsupportedIntersectionKind, VirtualContinuation,
-    contract_topology, generate_schematic, render_topology_svg, validate_topology,
+    analyze_density, contract_topology, generate_schematic, render_topology_svg, validate_topology,
 };
 
 /// Names indexed by a language such as `en` or `zh-CN`.

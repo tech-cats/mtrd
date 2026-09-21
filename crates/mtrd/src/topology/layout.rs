@@ -189,6 +189,7 @@ mod tests {
             options: TopologyOptions {
                 background: TopologyBackgroundOptions::Transparent,
                 coordinates,
+                density_reshape: Default::default(),
                 labels: TopologyLabelOptions { hidden: true },
                 languages: crate::Languages {
                     set: ["en".to_owned()].into(),

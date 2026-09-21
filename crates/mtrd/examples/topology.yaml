@@ -10,6 +10,22 @@ options:
     set:
     - en
     primary: en
+  density-reshape:
+    estimator: vertex-kde
+    bandwidth:
+      factor: 1.0
+    mesh-cell-size:
+      factor: 1.0
+    raster-pixel-size:
+      factor: 1.0
+    padding:
+      factor: 1.0
+    station-weight:
+      factor: 1.0
+    segment-weight:
+      factor: 1.0
+    density-floor:
+      factor: 1.0
   lines:
     width: 5.0
   scale: 1.0

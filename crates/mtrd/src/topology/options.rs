@@ -13,10 +13,131 @@ pub struct TopologyOptions {
     #[serde(default)]
     pub labels: TopologyLabelOptions,
     pub languages: Languages,
+    #[serde(default)]
+    pub density_reshape: DensityReshapeOptions,
     pub lines: TopologyLineOptions,
     #[serde(default)]
     pub scale: TopologyScale,
     pub stations: TopologyStationOptions,
+}
+
+/// Density estimation settings for the pre-layout triangular mesh.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case", deny_unknown_fields)]
+pub struct DensityReshapeOptions {
+    #[serde(default)]
+    pub estimator: DensityEstimator,
+    #[serde(default = "DensityValue::factor_one")]
+    pub bandwidth: DensityValue,
+    #[serde(default = "DensityValue::factor_one")]
+    pub mesh_cell_size: DensityValue,
+    #[serde(default = "DensityValue::factor_one")]
+    pub raster_pixel_size: DensityValue,
+    #[serde(default = "DensityValue::factor_one")]
+    pub padding: DensityValue,
+    #[serde(default = "DensityValue::factor_one")]
+    pub station_weight: DensityValue,
+    #[serde(default = "DensityValue::factor_one")]
+    pub segment_weight: DensityValue,
+    #[serde(default = "DensityValue::factor_one")]
+    pub density_floor: DensityValue,
+}
+
+impl Default for DensityReshapeOptions {
+    fn default() -> Self {
+        Self {
+            estimator: DensityEstimator::default(),
+            bandwidth: DensityValue::factor_one(),
+            mesh_cell_size: DensityValue::factor_one(),
+            raster_pixel_size: DensityValue::factor_one(),
+            padding: DensityValue::factor_one(),
+            station_weight: DensityValue::factor_one(),
+            segment_weight: DensityValue::factor_one(),
+            density_floor: DensityValue::factor_one(),
+        }
+    }
+}
+
+impl DensityReshapeOptions {
+    pub(super) fn validate_scalars(&self) -> Result<(), (&'static str, &'static str)> {
+        for (name, value, allows_zero) in [
+            ("bandwidth", self.bandwidth, false),
+            ("mesh-cell-size", self.mesh_cell_size, false),
+            ("raster-pixel-size", self.raster_pixel_size, false),
+            ("padding", self.padding, false),
+            ("station-weight", self.station_weight, true),
+            ("segment-weight", self.segment_weight, true),
+            ("density-floor", self.density_floor, false),
+        ] {
+            let raw = value.raw();
+            if !raw.is_finite() || raw < 0.0 || (raw == 0.0 && !allows_zero) {
+                return Err((
+                    name,
+                    if allows_zero {
+                        "finite and nonnegative"
+                    } else {
+                        "finite and strictly positive"
+                    },
+                ));
+            }
+        }
+        if self.station_weight.raw() == 0.0 && self.segment_weight.raw() == 0.0 {
+            return Err((
+                "station-weight/segment-weight",
+                "at least one positive demand weight",
+            ));
+        }
+        Ok(())
+    }
+}
+
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum DensityEstimator {
+    #[default]
+    VertexKde,
+    TriangleQuadrature,
+    RasterConvolution,
+}
+
+/// An exact canonical-coordinate value or a multiplier of its derived default.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum DensityValue {
+    Exact(DensityExact),
+    Factor(DensityFactor),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct DensityExact {
+    pub exact: f64,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct DensityFactor {
+    pub factor: f64,
+}
+
+impl DensityValue {
+    pub const fn factor_one() -> Self {
+        Self::Factor(DensityFactor { factor: 1.0 })
+    }
+
+    pub fn resolve(self, derived: f64) -> f64 {
+        match self {
+            Self::Exact(value) => value.exact,
+            Self::Factor(value) => value.factor * derived,
+        }
+    }
+
+    fn raw(self) -> f64 {
+        match self {
+            Self::Exact(value) => value.exact,
+            Self::Factor(value) => value.factor,
+        }
+    }
 }
 
 /// The coordinate system and axis orientation used by station positions.

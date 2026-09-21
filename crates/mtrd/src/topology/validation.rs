@@ -46,6 +46,12 @@ pub enum TopologyRenderError {
     #[error(transparent)]
     Languages(#[from] LanguageError),
 
+    #[error("density parameter '{name}' must be {requirement}")]
+    InvalidDensityOptions {
+        name: &'static str,
+        requirement: &'static str,
+    },
+
     #[error("station id must not be empty")]
     EmptyStationId,
 
@@ -115,6 +121,13 @@ pub(super) fn validate_topology_structure(
     topology: &MetroTopology,
 ) -> Result<(), TopologyRenderError> {
     topology.options.languages.validate()?;
+    topology
+        .options
+        .density_reshape
+        .validate_scalars()
+        .map_err(
+            |(name, requirement)| TopologyRenderError::InvalidDensityOptions { name, requirement },
+        )?;
     let stations = station_index(topology)?;
     let mut line_ids = HashSet::with_capacity(topology.lines.len());
 
@@ -362,6 +375,20 @@ stations:
             Err(TopologyRenderError::UnknownStation {
                 line: "red\"line".into(),
                 station: "missing".into()
+            })
+        );
+    }
+
+    #[test]
+    fn rejects_invalid_density_controls_during_topology_check() {
+        let mut invalid = topology();
+        invalid.options.density_reshape.bandwidth =
+            crate::DensityValue::Exact(crate::DensityExact { exact: -1.0 });
+        assert_eq!(
+            validate_topology(&invalid),
+            Err(TopologyRenderError::InvalidDensityOptions {
+                name: "bandwidth",
+                requirement: "finite and strictly positive",
             })
         );
     }

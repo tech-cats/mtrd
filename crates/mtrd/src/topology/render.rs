@@ -391,6 +391,7 @@ mod tests {
 
     fn options() -> TopologyOptions {
         TopologyOptions {
+            density_reshape: Default::default(),
             background: TopologyBackgroundOptions::Color {
                 color: "#abcdef".into(),
             },

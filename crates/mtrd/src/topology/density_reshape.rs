@@ -1,4 +1,11 @@
+mod analysis;
+
 use super::{ContractedNode, ContractedTopology, MetroTopology, TopologyPosition};
+
+pub(crate) use analysis::analyze_canonical_density;
+pub use analysis::{
+    DensityAnalysis, DensityError, DensityTriangle, ResolvedDensityOptions, analyze_density,
+};
 
 /// A continuous deformation from canonical source coordinates to layout target
 /// coordinates.

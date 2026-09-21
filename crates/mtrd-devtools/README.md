@@ -28,3 +28,17 @@ cargo run -p mtrd-devtools -- contract --render topology.yaml
 
 Contracted manifests are unstable debugging artifacts rather than part of
 the public manifest contract.
+
+Inspect the pre-layout density mesh and triangle masses:
+
+```sh
+cargo run -p mtrd-devtools -- density topology.yaml
+cargo run -p mtrd-devtools -- density --render topology.yaml
+```
+
+The first command writes `topology.density.yaml` (or equivalent JSON). The
+`-r`/`--render` flag additionally writes `topology.density.yaml.svg`, showing
+the density heatmap, source lines, and stations. An explicit output path may be
+given after the input. The estimator and exact/factor overrides come from the
+topology manifest's `options.density-reshape` block. These analysis artifacts
+are debugging output, not stable manifest schemas.
