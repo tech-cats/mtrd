@@ -3,11 +3,18 @@ use serde::{Deserialize, Deserializer, Serialize};
 use crate::{DensityError, manifest_format::canonicalize_yaml};
 
 /// Density estimation settings for the pre-layout triangular mesh.
-#[derive(Debug, Default, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case", deny_unknown_fields)]
 pub struct DensityReshapeOptions {
     #[serde(default)]
     pub estimator: DensityEstimator,
+    #[serde(default)]
+    pub method: DensityWarpMethod,
+    #[serde(
+        default = "default_equalization_strength",
+        alias = "equalisation-strength"
+    )]
+    pub equalization_strength: f64,
     #[serde(
         default,
         skip_serializing_if = "Option::is_none",
@@ -52,12 +59,34 @@ pub struct DensityReshapeOptions {
     pub density_floor: Option<f64>,
 }
 
+impl Default for DensityReshapeOptions {
+    fn default() -> Self {
+        Self {
+            estimator: DensityEstimator::default(),
+            method: DensityWarpMethod::default(),
+            equalization_strength: default_equalization_strength(),
+            bandwidth: None,
+            mesh_cell_size: None,
+            raster_pixel_size: None,
+            padding: None,
+            station_weight: None,
+            segment_weight: None,
+            density_floor: None,
+        }
+    }
+}
+
 fn scalar<'de, D: Deserializer<'de>>(deserializer: D) -> Result<Option<f64>, D::Error> {
     f64::deserialize(deserializer).map(Some)
 }
 
 impl DensityReshapeOptions {
     pub(crate) fn validate_scalars(&self) -> Result<(), (&'static str, &'static str)> {
+        if !self.equalization_strength.is_finite()
+            || !(0.0..=1.0).contains(&self.equalization_strength)
+        {
+            return Err(("equalization-strength", "finite and between 0 and 1"));
+        }
         for (name, value, allows_zero) in [
             ("bandwidth", self.bandwidth, false),
             ("mesh-cell-size", self.mesh_cell_size, false),
@@ -88,6 +117,18 @@ impl DensityReshapeOptions {
         }
         Ok(())
     }
+}
+
+fn default_equalization_strength() -> f64 {
+    0.5
+}
+
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum DensityWarpMethod {
+    #[default]
+    Diffusion,
+    TriangleArea,
 }
 
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -179,5 +220,46 @@ mod tests {
                 ..
             })
         ));
+        for value in ["-0.1", "1.1", ".nan"] {
+            let config = GenerationManifest::from_yaml(&format!(
+                "density-reshape: {{equalization-strength: {value}}}"
+            ))
+            .unwrap();
+            assert!(matches!(
+                config.validate(),
+                Err(DensityError::InvalidParameter {
+                    name: "equalization-strength",
+                    ..
+                })
+            ));
+        }
+    }
+
+    #[test]
+    fn method_and_strength_have_canonical_defaults_and_british_input_alias() {
+        let defaults = GenerationManifest::default();
+        assert_eq!(
+            defaults.density_reshape.method,
+            DensityWarpMethod::Diffusion
+        );
+        assert_eq!(defaults.density_reshape.equalization_strength, 0.5);
+        let alias = GenerationManifest::from_yaml(
+            "density-reshape: {method: triangle-area, equalisation-strength: 0.25}",
+        )
+        .unwrap();
+        assert_eq!(
+            alias.density_reshape.method,
+            DensityWarpMethod::TriangleArea
+        );
+        assert_eq!(alias.density_reshape.equalization_strength, 0.25);
+        let canonical = alias.to_yaml().unwrap();
+        assert!(canonical.contains("equalization-strength: 0.25"));
+        assert!(!canonical.contains("equalisation-strength"));
+        assert!(
+            GenerationManifest::from_yaml(
+                "density-reshape: {method: other, equalization-strength: 0.5}"
+            )
+            .is_err()
+        );
     }
 }

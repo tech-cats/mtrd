@@ -1,31 +1,16 @@
 mod analysis;
+mod warp;
 
-use super::{ContractedNode, ContractedTopology, MetroTopology, TopologyPosition};
+use super::{ContractedNode, ContractedTopology, TopologyPosition};
 
 pub(crate) use analysis::analyze_canonical_density;
 pub use analysis::{
     DensityAnalysis, DensityError, DensityTriangle, ResolvedDensityOptions, analyze_density,
 };
-
-/// A continuous deformation from canonical source coordinates to layout target
-/// coordinates.
-///
-/// The first implementation is the identity map. Keeping the transform as a
-/// distinct stage establishes where a later mesh-backed deformation will be
-/// derived and prevents it from mutating the canonical contraction source.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) struct DensityWarp;
-
-impl DensityWarp {
-    pub(crate) fn identity(source: &MetroTopology) -> Self {
-        debug_assert_eq!(source.options.coordinates, Default::default());
-        Self
-    }
-
-    fn transform(&self, position: TopologyPosition) -> TopologyPosition {
-        position
-    }
-}
+pub(crate) use warp::DensityWarp;
+pub use warp::{
+    DensityWarpAnalysis, DensityWarpDiagnostics, WarpedSegment, WarpedStation, analyze_density_warp,
+};
 
 /// Warped positions for contracted nodes, indexed like
 /// [`ContractedTopology::nodes`].
@@ -39,7 +24,10 @@ pub(crate) struct WarpedLayoutTargets {
 }
 
 impl WarpedLayoutTargets {
-    pub(crate) fn from_contracted(contracted: &ContractedTopology, warp: &DensityWarp) -> Self {
+    pub(crate) fn from_contracted(
+        contracted: &ContractedTopology,
+        warp: &DensityWarp,
+    ) -> Result<Self, DensityError> {
         let node_positions = contracted
             .nodes
             .iter()
@@ -53,9 +41,9 @@ impl WarpedLayoutTargets {
                 };
                 warp.transform(source_position)
             })
-            .collect();
+            .collect::<Result<_, _>>()?;
 
-        Self { node_positions }
+        Ok(Self { node_positions })
     }
 
     pub(crate) fn len(&self) -> usize {
@@ -67,8 +55,8 @@ impl WarpedLayoutTargets {
 mod tests {
     use super::*;
     use crate::{
-        ContractedEdge, ContractedPath, RetentionReason, StationNeighborOrder, TopologyOptions,
-        TopologyStation,
+        ContractedEdge, ContractedPath, MetroTopology, RetentionReason, StationNeighborOrder,
+        TopologyOptions, TopologyStation,
     };
 
     fn options() -> TopologyOptions {
@@ -116,21 +104,24 @@ stations:
         }
     }
 
+    fn identity_warp() -> DensityWarp {
+        DensityWarp::test_identity([0.0, 0.0, 10.0, 10.0])
+    }
+
     #[test]
     fn identity_preserves_arbitrary_positions() {
-        let contracted = contracted_topology();
-        let warp = DensityWarp::identity(&contracted.source);
-        let position = TopologyPosition { x: -4.5, y: 8.25 };
+        let warp = identity_warp();
+        let position = TopologyPosition { x: 4.5, y: 8.25 };
 
-        assert_eq!(warp.transform(position), position);
+        assert_eq!(warp.transform(position).unwrap(), position);
     }
 
     #[test]
     fn identity_targets_cover_stations_and_virtual_crossings() {
         let contracted = contracted_topology();
         let original = contracted.clone();
-        let warp = DensityWarp::identity(&contracted.source);
-        let targets = WarpedLayoutTargets::from_contracted(&contracted, &warp);
+        let warp = identity_warp();
+        let targets = WarpedLayoutTargets::from_contracted(&contracted, &warp).unwrap();
 
         assert_eq!(
             targets.node_positions,

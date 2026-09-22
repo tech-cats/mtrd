@@ -21,7 +21,7 @@ continues to validate topology and schematic manifests only.
 
 The library entry point is `generate_schematic(&MetroTopology, &GenerationManifest)`.
 The config is a separate YAML manifest. It currently returns
-`SchematicGenerationError::StageUnavailable` after density analysis and
+`SchematicGenerationError::StageUnavailable` after density warping and
 successful contraction, or a typed error if the input cannot be prepared.
 
 For direct pipeline access, call `MetroTopology::canonicalize_coordinates`

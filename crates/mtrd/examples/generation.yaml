@@ -1,2 +1,4 @@
 density-reshape:
   estimator: vertex-kde
+  method: diffusion
+  equalization-strength: 0.5

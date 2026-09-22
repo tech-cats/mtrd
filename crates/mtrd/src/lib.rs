@@ -14,7 +14,9 @@ mod topology;
 
 use std::collections::BTreeMap;
 
-pub use generation::{DensityEstimator, DensityReshapeOptions, GenerationManifest};
+pub use generation::{
+    DensityEstimator, DensityReshapeOptions, DensityWarpMethod, GenerationManifest,
+};
 pub use languages::{LanguageError, Languages};
 pub use schematic::{
     OctilinearAxis, SchematicBackgroundOptions, SchematicCommonStationFill,
@@ -28,18 +30,19 @@ pub use schematic::{
 };
 pub use topology::{
     ContractedEdge, ContractedNode, ContractedPath, ContractedTopology, DensityAnalysis,
-    DensityError, DensityTriangle, DuplicateStationPositionGroup, DuplicateStationPositionGroups,
-    EdgeEndpoint, IncidentEdge, LocatedOccurrence, MetroTopology, ReducedTraversal,
-    ResolvedDensityOptions, RetentionReason, SchematicGenerationError, SourceSegmentSpan,
-    StationNeighborOrder, TopologyBackgroundOptions, TopologyCartesianAxes,
-    TopologyCommonStationFill, TopologyCommonStationOptions, TopologyCommonStationStroke,
-    TopologyContractError, TopologyCoordinateOptions, TopologyGeographicAxes,
-    TopologyInterchangeStationFill, TopologyInterchangeStationOptions,
+    DensityError, DensityTriangle, DensityWarpAnalysis, DensityWarpDiagnostics,
+    DuplicateStationPositionGroup, DuplicateStationPositionGroups, EdgeEndpoint, IncidentEdge,
+    LocatedOccurrence, MetroTopology, ReducedTraversal, ResolvedDensityOptions, RetentionReason,
+    SchematicGenerationError, SourceSegmentSpan, StationNeighborOrder, TopologyBackgroundOptions,
+    TopologyCartesianAxes, TopologyCommonStationFill, TopologyCommonStationOptions,
+    TopologyCommonStationStroke, TopologyContractError, TopologyCoordinateOptions,
+    TopologyGeographicAxes, TopologyInterchangeStationFill, TopologyInterchangeStationOptions,
     TopologyInterchangeStationStroke, TopologyLabelOptions, TopologyLength, TopologyLine,
     TopologyLineOptions, TopologyOptions, TopologyPath, TopologyPosition, TopologyRenderError,
     TopologyScale, TopologyStation, TopologyStationColor, TopologyStationOptions,
     TopologyStrokeAlignment, TopologyValueError, UnsupportedIntersectionKind, VirtualContinuation,
-    analyze_density, contract_topology, generate_schematic, render_topology_svg, validate_topology,
+    WarpedSegment, WarpedStation, analyze_density, analyze_density_warp, contract_topology,
+    generate_schematic, render_topology_svg, validate_topology,
 };
 
 /// Names indexed by a language such as `en` or `zh-CN`.

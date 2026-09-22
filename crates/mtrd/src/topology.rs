@@ -16,7 +16,8 @@ pub use contract::{
     TopologyContractError, UnsupportedIntersectionKind, VirtualContinuation, contract_topology,
 };
 pub use density_reshape::{
-    DensityAnalysis, DensityError, DensityTriangle, ResolvedDensityOptions, analyze_density,
+    DensityAnalysis, DensityError, DensityTriangle, DensityWarpAnalysis, DensityWarpDiagnostics,
+    ResolvedDensityOptions, WarpedSegment, WarpedStation, analyze_density, analyze_density_warp,
 };
 pub use options::{
     TopologyBackgroundOptions, TopologyCartesianAxes, TopologyCommonStationFill,
@@ -59,11 +60,15 @@ pub fn generate_schematic(
         .clone()
         .canonicalize_coordinates()
         .map_err(SchematicGenerationError::Initialize)?;
-    let _density = density_reshape::analyze_canonical_density(&topology, generation)?;
-    let density_warp = density_reshape::DensityWarp::identity(&topology);
+    let density = density_reshape::analyze_canonical_density(&topology, generation)?;
+    let density_warp = density_reshape::DensityWarp::build(
+        &density,
+        generation.density_reshape.method,
+        generation.density_reshape.equalization_strength,
+    )?;
     let contracted = contract::contract_topology(topology)?;
     let warped_targets =
-        density_reshape::WarpedLayoutTargets::from_contracted(&contracted, &density_warp);
+        density_reshape::WarpedLayoutTargets::from_contracted(&contracted, &density_warp)?;
     debug_assert_eq!(warped_targets.len(), contracted.nodes.len());
     Err(SchematicGenerationError::StageUnavailable)
 }

@@ -22,6 +22,12 @@ pub enum DensityError {
     SizeLimit { kind: &'static str, limit: usize },
     #[error("density computation exceeded the supported numeric range")]
     NumericRange,
+    #[error("point is outside the density warp domain")]
+    OutsideWarpDomain,
+    #[error("invalid density warp: {0}")]
+    InvalidWarp(&'static str),
+    #[error("{method} density warp did not converge")]
+    WarpDidNotConverge { method: &'static str },
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
