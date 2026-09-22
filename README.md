@@ -170,6 +170,69 @@ coordinates with rightward `x` and downward `y` axes, visible labels
 (`hidden: false`), and a scale of `1.0`. Canonical YAML and JSON include these
 resolved values.
 
+Generation settings live in a separate YAML generation manifest, not in the
+topology manifest.
+The optional `density-reshape` block controls pre-layout density analysis.
+Its estimator is `vertex-kde` by default; `triangle-quadrature` and
+`raster-convolution` are also available. Numeric controls are plain scalar
+values in canonical coordinate units (where applicable). Omitted controls use
+defaults derived from the source topology:
+
+```yaml
+density-reshape:
+  estimator: vertex-kde
+  method: diffusion
+  equalization-strength: 0.5
+  bandwidth: 400.0
+  mesh-cell-size: 100.0
+  raster-pixel-size: 100.0
+  padding: 1200.0
+  station-weight: 1.0
+  segment-weight: 0.01
+  density-floor: 0.000001
+```
+
+The derived bandwidth is twice the median nearest-neighbour station distance;
+for fewer than two stations it uses twice the greater of the line width and
+one canonical unit. Mesh cell side defaults to `bandwidth / (2 sqrt(2))`,
+raster pixel size to `bandwidth / 4`, and padding to three bandwidths. Station
+weight defaults to `1`; each unique physical segment contributes once with
+weight per unit length equal to the inverse nearest-neighbour scale. The floor
+defaults to 5% of mean source demand over the padded domain. Values must be
+finite; lengths and the floor must be positive, weights nonnegative, and at
+least one demand weight positive. Mesh and raster resolution cannot be coarser
+than their defaults relative to the resolved bandwidth. Analysis size is
+limited to 250,000 triangles or one million raster pixels.
+The deformation method is `diffusion` by default; `triangle-area` selects the
+regularised mesh optimiser. `equalization-strength` must be between `0` and
+`1`, inclusive; `0` is an identity warp and the default `0.5` gives partial
+equalisation. The British spelling `equalisation-strength` is accepted on input,
+while serialisation emits the canonical North American spelling. A warp that
+cannot preserve positive triangle areas or a simple boundary fails with a typed
+error rather than silently reducing its strength.
+
+`GenerationManifest` is the strict YAML model; omitted fields use defaults. A
+[sample generation manifest](crates/mtrd/examples/generation.yaml) is included.
+The private `mtrd-devtools derive topology.yaml [generation.yaml]` command
+exports the defaults resolved for that topology as numeric scalars. It
+writes YAML to stdout when the output path is omitted and also accepts a JSON
+output path.
+`mtrd check` validates only topology and schematic manifests. Generation
+manifest validation belongs under a future `mtrd generate check` command; the
+public CLI has no `generate` entrypoint yet. For now, the private developer
+command `mtrd-devtools density -m generation.yaml topology.yaml` reads and
+validates the generation manifest for that invocation.
+
+`analyze_density(&MetroTopology, &GenerationManifest)` exposes the resolved
+parameters, mesh, sampled densities, triangle masses, and diagnostics. The
+private `mtrd-devtools density` command provides inspectable data and an
+optional SVG heatmap. `analyze_density_warp` computes the continuous pre-layout
+deformation, preserving source coordinates. The private command
+`mtrd-devtools warp -m generation.yaml topology.yaml --render` writes a
+`topology.warp.yaml` analysis and `topology.warp.yaml.svg` showing the deformed
+mesh, station markers, and warped source segments. It also accepts a JSON output
+path. The later schematic layout stage is not yet available.
+
 The whole `coordinates` mapping may be omitted, and `axes` may be omitted when
 `type` is present. If the mapping is present, `type` is required:
 

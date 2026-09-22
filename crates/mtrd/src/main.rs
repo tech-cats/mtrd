@@ -37,7 +37,7 @@ enum Command {
         output: PathBuf,
     },
 
-    /// Check whether a metro manifest has valid syntax and schema.
+    /// Check whether a topology or schematic manifest is valid.
     Check {
         /// Print canonical YAML (-v) or detailed debug output (-vv).
         #[arg(short = 'v', action = ArgAction::Count)]
@@ -542,7 +542,8 @@ lines:
                 verbose: 2,
                 topology: true,
                 schematic: false,
-                input
+                input,
+                ..
             } if input == Path::new("topology.yaml")
         ));
 
@@ -553,7 +554,8 @@ lines:
                 verbose: 0,
                 topology: false,
                 schematic: true,
-                input
+                input,
+                ..
             } if input == Path::new("schematic.yaml")
         ));
     }
@@ -592,6 +594,25 @@ lines:
             let error = Cli::try_parse_from(["mtrd", command, "topology.yaml"]).unwrap_err();
             assert_eq!(error.kind(), clap::error::ErrorKind::InvalidSubcommand);
         }
+    }
+
+    #[test]
+    fn check_rejects_generation_manifest_flags_and_topology_field() {
+        for flag in ["-m", "--manifest", "-c", "--config"] {
+            assert!(
+                Cli::try_parse_from([
+                    "mtrd",
+                    "check",
+                    "-t",
+                    flag,
+                    "generation.yaml",
+                    "topology.yaml",
+                ])
+                .is_err()
+            );
+        }
+        let old = TOPOLOGY_EXAMPLE.replacen("options:\n", "options:\n  density-reshape: {}\n", 1);
+        assert!(MetroTopology::from_yaml(&old).is_err());
     }
 
     #[test]

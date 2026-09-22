@@ -1,4 +1,5 @@
 pub(crate) mod contract;
+mod density_reshape;
 mod layout;
 mod options;
 mod render;
@@ -13,6 +14,10 @@ pub use contract::{
     ContractedEdge, ContractedNode, ContractedPath, ContractedTopology, EdgeEndpoint, IncidentEdge,
     LocatedOccurrence, ReducedTraversal, RetentionReason, SourceSegmentSpan, StationNeighborOrder,
     TopologyContractError, UnsupportedIntersectionKind, VirtualContinuation, contract_topology,
+};
+pub use density_reshape::{
+    DensityAnalysis, DensityError, DensityTriangle, DensityWarpAnalysis, DensityWarpDiagnostics,
+    ResolvedDensityOptions, WarpedSegment, WarpedStation, analyze_density, analyze_density_warp,
 };
 pub use options::{
     TopologyBackgroundOptions, TopologyCartesianAxes, TopologyCommonStationFill,
@@ -36,6 +41,9 @@ pub enum SchematicGenerationError {
     #[error(transparent)]
     Contract(#[from] TopologyContractError),
 
+    #[error(transparent)]
+    Density(#[from] DensityError),
+
     #[error("schematic generation is not implemented yet")]
     StageUnavailable,
 }
@@ -46,12 +54,22 @@ pub enum SchematicGenerationError {
 /// contracted topology currently returns [`SchematicGenerationError::StageUnavailable`].
 pub fn generate_schematic(
     topology: &MetroTopology,
+    generation: &crate::GenerationManifest,
 ) -> Result<SchematicManifest, SchematicGenerationError> {
     let topology = topology
         .clone()
         .canonicalize_coordinates()
         .map_err(SchematicGenerationError::Initialize)?;
-    let _contracted = contract::contract_topology(topology)?;
+    let density = density_reshape::analyze_canonical_density(&topology, generation)?;
+    let density_warp = density_reshape::DensityWarp::build(
+        &density,
+        generation.density_reshape.method,
+        generation.density_reshape.equalization_strength,
+    )?;
+    let contracted = contract::contract_topology(topology)?;
+    let warped_targets =
+        density_reshape::WarpedLayoutTargets::from_contracted(&contracted, &density_warp)?;
+    debug_assert_eq!(warped_targets.len(), contracted.nodes.len());
     Err(SchematicGenerationError::StageUnavailable)
 }
 

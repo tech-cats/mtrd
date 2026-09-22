@@ -6,6 +6,7 @@
 //! YAML is the primary, human-editable manifest format. JSON uses the same
 //! schemas and is available for interchange with web applications.
 
+mod generation;
 mod languages;
 mod manifest_format;
 mod schematic;
@@ -13,6 +14,9 @@ mod topology;
 
 use std::collections::BTreeMap;
 
+pub use generation::{
+    DensityEstimator, DensityReshapeOptions, DensityWarpMethod, GenerationManifest,
+};
 pub use languages::{LanguageError, Languages};
 pub use schematic::{
     OctilinearAxis, SchematicBackgroundOptions, SchematicCommonStationFill,
@@ -25,18 +29,20 @@ pub use schematic::{
     render_schematic_svg, validate_schematic,
 };
 pub use topology::{
-    ContractedEdge, ContractedNode, ContractedPath, ContractedTopology,
+    ContractedEdge, ContractedNode, ContractedPath, ContractedTopology, DensityAnalysis,
+    DensityError, DensityTriangle, DensityWarpAnalysis, DensityWarpDiagnostics,
     DuplicateStationPositionGroup, DuplicateStationPositionGroups, EdgeEndpoint, IncidentEdge,
-    LocatedOccurrence, MetroTopology, ReducedTraversal, RetentionReason, SchematicGenerationError,
-    SourceSegmentSpan, StationNeighborOrder, TopologyBackgroundOptions, TopologyCartesianAxes,
-    TopologyCommonStationFill, TopologyCommonStationOptions, TopologyCommonStationStroke,
-    TopologyContractError, TopologyCoordinateOptions, TopologyGeographicAxes,
-    TopologyInterchangeStationFill, TopologyInterchangeStationOptions,
+    LocatedOccurrence, MetroTopology, ReducedTraversal, ResolvedDensityOptions, RetentionReason,
+    SchematicGenerationError, SourceSegmentSpan, StationNeighborOrder, TopologyBackgroundOptions,
+    TopologyCartesianAxes, TopologyCommonStationFill, TopologyCommonStationOptions,
+    TopologyCommonStationStroke, TopologyContractError, TopologyCoordinateOptions,
+    TopologyGeographicAxes, TopologyInterchangeStationFill, TopologyInterchangeStationOptions,
     TopologyInterchangeStationStroke, TopologyLabelOptions, TopologyLength, TopologyLine,
     TopologyLineOptions, TopologyOptions, TopologyPath, TopologyPosition, TopologyRenderError,
     TopologyScale, TopologyStation, TopologyStationColor, TopologyStationOptions,
     TopologyStrokeAlignment, TopologyValueError, UnsupportedIntersectionKind, VirtualContinuation,
-    contract_topology, generate_schematic, render_topology_svg, validate_topology,
+    WarpedSegment, WarpedStation, analyze_density, analyze_density_warp, contract_topology,
+    generate_schematic, render_topology_svg, validate_topology,
 };
 
 /// Names indexed by a language such as `en` or `zh-CN`.
